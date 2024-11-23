@@ -1,4 +1,4 @@
-# Generator or OpenAPI v3.1 rust clients
+# Generator for OpenAPI v3.1 rust clients
 
 ```
 opage -s spec.openapi.yaml -o output_client
