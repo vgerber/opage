@@ -14,7 +14,17 @@ pub struct NameMapper {
 }
 
 impl NameMapper {
-    pub fn new(mapper_file_path: &Path) -> Result<Self, String> {
+    pub fn new() -> Self {
+        NameMapper {
+            mappings: NameMappings {
+                module_mapping: HashMap::new(),
+                property_mapping: HashMap::new(),
+                struct_mapping: HashMap::new(),
+            },
+        }
+    }
+
+    pub fn from(mapper_file_path: &Path) -> Result<Self, String> {
         let file = match File::open(mapper_file_path) {
             Ok(file) => file,
             Err(err) => return Err(err.to_string()),
