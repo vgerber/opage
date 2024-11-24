@@ -6,7 +6,7 @@ use std::{fs::File, io::Write, path::Path};
 
 use cli::cli;
 use generator::{
-    component::{generate_components, write_object_database, ObjectDatabase},
+    component::{generate_components, write_object_database},
     paths::generate_paths,
 };
 use utils::config::Config;
