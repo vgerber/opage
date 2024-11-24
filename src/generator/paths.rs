@@ -12,12 +12,12 @@ use reqwest::StatusCode;
 
 use crate::{
     generator::component::{get_type_from_schema, PropertyDefinition},
-    utils::name_mapper::NameMapper,
+    utils::{config::Config, name_mapping::NameMapping},
 };
 
-use super::component::{ModuleInfo, StructDatabase, StructDefinition, TypeDefinition};
+use super::component::{ModuleInfo, ObjectDatabase, StructDefinition, TypeDefinition};
 
-pub fn generate_paths(spec: &Spec, struct_database: &mut StructDatabase, name_mapper: &NameMapper) {
+pub fn generate_paths(spec: &Spec, object_database: &mut ObjectDatabase, config: &Config) {
     let paths = match spec.paths {
         Some(ref paths) => paths,
         None => return (),
@@ -34,11 +34,12 @@ pub fn generate_paths(spec: &Spec, struct_database: &mut StructDatabase, name_ma
     };
 
     for (name, path_item) in paths {
-        // if name != "/cells/{cell}/motion-groups/{motion_group}" {
-        //     continue;
-        // }
+        if config.ignore.path_ignored(&name) {
+            println!("{} ignored", name);
+            continue;
+        }
+
         println!("{}", name);
-        // println!("{:#?}", path_item);
 
         let mut operations = vec![];
         if let Some(ref operation) = path_item.get {
@@ -63,8 +64,8 @@ pub fn generate_paths(spec: &Spec, struct_database: &mut StructDatabase, name_ma
                 &operation.0,
                 &name,
                 operation.1,
-                struct_database,
-                name_mapper,
+                object_database,
+                &config.name_mapping,
             ) {
                 Ok(operation_id) => {
                     mod_file
@@ -85,11 +86,11 @@ fn write_operation_to_file(
     method: &reqwest::Method,
     path: &str,
     operation: &Operation,
-    struct_database: &mut StructDatabase,
-    name_mapper: &NameMapper,
+    object_database: &mut ObjectDatabase,
+    name_mapping: &NameMapping,
 ) -> Result<String, String> {
     let operation_id = match operation.operation_id {
-        Some(ref operation_id) => &name_mapper.name_to_module_name(operation_id),
+        Some(ref operation_id) => &name_mapping.name_to_module_name(operation_id),
         None => {
             return Err(format!("{} get has no id", path));
         }
@@ -97,11 +98,11 @@ fn write_operation_to_file(
 
     let request_code = match generate_operation(
         spec,
-        name_mapper,
+        name_mapping,
         method,
         &path,
         &operation,
-        struct_database,
+        object_database,
     ) {
         Ok(request_code) => request_code,
         Err(err) => {
@@ -148,8 +149,8 @@ type ResponseEntities = HashMap<String, ResponseEntity>;
 
 fn generate_request_body(
     spec: &Spec,
-    struct_database: &mut StructDatabase,
-    name_mapper: &NameMapper,
+    object_database: &mut ObjectDatabase,
+    name_mapping: &NameMapping,
     request_body: &ObjectOrReference<RequestBody>,
     function_name: &str,
 ) -> Result<RequestEntity, String> {
@@ -178,23 +179,23 @@ fn generate_request_body(
                     module: Some(ModuleInfo {
                         path: format!(
                             "crate::objects::{}",
-                            name_mapper.name_to_module_name(object_name)
+                            name_mapping.name_to_module_name(object_name)
                         ),
-                        name: name_mapper.name_to_struct_name(object_name).to_owned(),
+                        name: name_mapping.name_to_struct_name(object_name).to_owned(),
                     }),
-                    name: name_mapper.name_to_struct_name(object_name).to_owned(),
+                    name: name_mapping.name_to_struct_name(object_name).to_owned(),
                 }),
                 None => None,
             },
             ObjectOrReference::Object(object_schema) => match get_type_from_schema(
                 spec,
-                struct_database,
+                object_database,
                 object_schema,
                 Some(&format!(
                     "{}RequestBody",
-                    name_mapper.name_to_struct_name(&function_name).to_owned(),
+                    name_mapping.name_to_struct_name(&function_name).to_owned(),
                 )),
-                name_mapper,
+                name_mapping,
             ) {
                 Ok(type_definition) => Some(type_definition),
                 Err(err) => return Err(err),
@@ -215,8 +216,8 @@ fn generate_request_body(
 
 fn generate_responses(
     spec: &Spec,
-    struct_database: &mut StructDatabase,
-    name_mapper: &NameMapper,
+    object_database: &mut ObjectDatabase,
+    name_mapping: &NameMapping,
     responses: &BTreeMap<String, Response>,
     function_name: &str,
 ) -> Result<ResponseEntities, String> {
@@ -227,14 +228,9 @@ fn generate_responses(
         }
 
         let canonical_status_code = match StatusCode::from_bytes(response_key.as_bytes()) {
-            Ok(status_code) => match status_code.canonical_reason() {
-                Some(canonical_status_code) => canonical_status_code,
-                None => {
-                    return Err(format!(
-                        "Failed to get canonical status code {}",
-                        response_key
-                    ))
-                }
+            Ok(status_code) => match name_mapping.status_code_to_canonical_name(status_code) {
+                Ok(canonical_status_code) => canonical_status_code,
+                Err(err) => return Err(err)
             },
             Err(err) => {
                 return Err(format!(
@@ -271,24 +267,24 @@ fn generate_responses(
                         module: Some(ModuleInfo {
                             path: format!(
                                 "crate::objects::{}",
-                                name_mapper.name_to_module_name(object_name)
+                                name_mapping.name_to_module_name(object_name)
                             ),
-                            name: name_mapper.name_to_struct_name(object_name).to_owned(),
+                            name: name_mapping.name_to_struct_name(object_name).to_owned(),
                         }),
-                        name: name_mapper.name_to_struct_name(object_name).to_owned(),
+                        name: name_mapping.name_to_struct_name(object_name).to_owned(),
                     }),
                     None => None,
                 },
                 ObjectOrReference::Object(object_schema) => match get_type_from_schema(
                     spec,
-                    struct_database,
+                    object_database,
                     object_schema,
                     Some(&format!(
                         "{}{}",
-                        name_mapper.name_to_struct_name(&function_name).to_owned(),
+                        name_mapping.name_to_struct_name(&function_name).to_owned(),
                         canonical_status_code
                     )),
-                    name_mapper,
+                    name_mapping,
                 ) {
                     Ok(type_definition) => Some(type_definition),
                     Err(err) => return Err(err),
@@ -322,21 +318,21 @@ fn use_module_to_string(module: &ModuleInfo) -> String {
 
 fn generate_operation(
     spec: &Spec,
-    name_mapper: &NameMapper,
+    name_mapping: &NameMapping,
     method: &reqwest::Method,
     path: &str,
     operation: &Operation,
-    struct_database: &mut StructDatabase,
+    object_database: &mut ObjectDatabase,
 ) -> Result<String, String> {
     let function_name = match operation.operation_id {
-        Some(ref operation_id) => name_mapper.name_to_module_name(operation_id),
+        Some(ref operation_id) => name_mapping.name_to_module_name(operation_id),
         None => return Err("No operation_id found".to_owned()),
     };
 
     let response_entities = match generate_responses(
         spec,
-        struct_database,
-        name_mapper,
+        object_database,
+        name_mapping,
         &operation.responses(spec),
         &function_name,
     ) {
@@ -350,7 +346,7 @@ fn generate_operation(
         .map(|path_component| path_component.replace("{", "").replace("}", ""))
         .map(|path_component| PropertyDefinition {
             module: None,
-            name: name_mapper.name_to_property_name(&path_component),
+            name: name_mapping.name_to_property_name(&path_component),
             real_name: path_component,
             required: true,
             type_name: "&str".to_owned(),
@@ -359,7 +355,7 @@ fn generate_operation(
     let path_struct_definition = StructDefinition {
         name: format!(
             "{}PathParameters",
-            name_mapper.name_to_struct_name(&function_name)
+            name_mapping.name_to_struct_name(&function_name)
         ),
         used_modules: vec![],
         properties: path_parameters_ordered
@@ -392,7 +388,7 @@ fn generate_operation(
 
     let response_enum_name = format!(
         "{}ResponseType",
-        name_mapper.name_to_struct_name(&function_name)
+        name_mapping.name_to_struct_name(&function_name)
     );
 
     let mut request_source_code = String::new();
@@ -402,7 +398,7 @@ fn generate_operation(
     if !path_struct_definition.properties.is_empty() {
         function_parameters.push(format!(
             "{}: &{}",
-            name_mapper.name_to_property_name(&path_struct_definition.name),
+            name_mapping.name_to_property_name(&path_struct_definition.name),
             path_struct_definition.name
         ));
     }
@@ -440,7 +436,7 @@ fn generate_operation(
                 TransferMediaType::ApplicationJson(ref type_definition) => {
                     response_enum_source_code += &format!(
                         "{}({}),\n",
-                        name_mapper.name_to_struct_name(&entity.canonical_status_code),
+                        name_mapping.name_to_struct_name(&entity.canonical_status_code),
                         type_definition.name,
                     )
                 }
@@ -448,7 +444,7 @@ fn generate_operation(
             None => {
                 response_enum_source_code += &format!(
                     "{},\n",
-                    name_mapper.name_to_struct_name(&entity.canonical_status_code),
+                    name_mapping.name_to_struct_name(&entity.canonical_status_code),
                 )
             }
         }
@@ -461,7 +457,7 @@ fn generate_operation(
     let mut query_struct = StructDefinition {
         name: format!(
             "{}QueryParameters",
-            name_mapper.name_to_struct_name(&function_name)
+            name_mapping.name_to_struct_name(&function_name)
         ),
         properties: HashMap::new(),
         used_modules: vec![],
@@ -480,10 +476,10 @@ fn generate_operation(
             Some(schema) => match schema.resolve(spec) {
                 Ok(object_schema) => get_type_from_schema(
                     spec,
-                    struct_database,
+                    object_database,
                     &object_schema,
                     Some(&parameter.name),
-                    name_mapper,
+                    name_mapping,
                 ),
                 Err(err) => {
                     return Err(format!(
@@ -498,9 +494,9 @@ fn generate_operation(
 
         let _ = match parameter_type {
             Ok(parameter_type) => query_struct.properties.insert(
-                name_mapper.name_to_property_name(&parameter.name),
+                name_mapping.name_to_property_name(&parameter.name),
                 PropertyDefinition {
-                    name: name_mapper.name_to_property_name(&parameter.name),
+                    name: name_mapping.name_to_property_name(&parameter.name),
                     module: parameter_type.module,
                     real_name: parameter.name,
                     required: match parameter.required {
@@ -518,7 +514,7 @@ fn generate_operation(
     if query_struct.properties.len() > 0 {
         function_parameters.push(format!(
             "{}: {}",
-            name_mapper.name_to_property_name(&query_struct.name),
+            name_mapping.name_to_property_name(&query_struct.name),
             query_struct.name
         ));
         query_struct_source_code += &query_struct.to_string(false);
@@ -530,8 +526,8 @@ fn generate_operation(
         Some(ref request_body) => {
             match generate_request_body(
                 spec,
-                struct_database,
-                name_mapper,
+                object_database,
+                name_mapping,
                 request_body,
                 &function_name,
             ) {
@@ -557,7 +553,7 @@ fn generate_operation(
                 }
                 function_parameters.push(format!(
                     "{}: {}",
-                    name_mapper.name_to_property_name(&type_definition.name),
+                    name_mapping.name_to_property_name(&type_definition.name),
                     type_definition.name
                 ))
             }
@@ -606,7 +602,7 @@ fn generate_operation(
             .map(|(_, property)| format!(
                 "(\"{}\",{}.{}.to_string())",
                 property.real_name,
-                name_mapper.name_to_property_name(&query_struct.name),
+                name_mapping.name_to_property_name(&query_struct.name),
                 property.name
             ))
             .collect::<Vec<String>>()
@@ -621,8 +617,8 @@ fn generate_operation(
     {
         request_source_code += &format!(
                 "{}.{}.iter().for_each(|query_parameter_item| query_parameters.push((\"{}\", query_parameter_item.to_string())));\n",
-                name_mapper.name_to_property_name(&query_struct.name),
-                name_mapper.name_to_property_name(&vector_property.name),
+                name_mapping.name_to_property_name(&query_struct.name),
+                name_mapping.name_to_property_name(&vector_property.name),
                 vector_property.real_name
             );
         
@@ -636,7 +632,7 @@ fn generate_operation(
     {
         request_source_code += &format!(
             "if let Some(query_parameter) = {}.{} {{\n",
-            name_mapper.name_to_property_name(&query_struct.name),
+            name_mapping.name_to_property_name(&query_struct.name),
             optional_property.name
         );
         if optional_property.type_name.starts_with("Vec<") {
@@ -658,7 +654,7 @@ fn generate_operation(
             TransferMediaType::ApplicationJson(type_definition) => {
                 format!(
                     ".json(&{})",
-                    name_mapper.name_to_property_name(&type_definition.name)
+                    name_mapping.name_to_property_name(&type_definition.name)
                 )
             }
         },
@@ -669,7 +665,7 @@ fn generate_operation(
         "    let response = match client.{}(format!(\"{}\", {})).query(&query_parameters){}.send().await\n",
         method.as_str().to_lowercase(),
         path_format_string,
-        path_parameters_ordered.iter().map(|parameter| format!("{}.{}", name_mapper.name_to_property_name(&path_struct_definition.name), name_mapper.name_to_property_name(&parameter.name))).collect::<Vec<String>>().join(","),
+        path_parameters_ordered.iter().map(|parameter| format!("{}.{}", name_mapping.name_to_property_name(&path_struct_definition.name), name_mapping.name_to_property_name(&parameter.name))).collect::<Vec<String>>().join(","),
         body_build
     );
     request_source_code += "    {\n";
@@ -690,10 +686,10 @@ fn generate_operation(
 
                     request_source_code += &format!(
                         "Ok({}) => Ok({}::{}({})),\n",
-                        name_mapper.name_to_property_name(&type_definition.name),
+                        name_mapping.name_to_property_name(&type_definition.name),
                         response_enum_name,
-                        name_mapper.name_to_struct_name(&entity.canonical_status_code),
-                        name_mapper.name_to_property_name(&type_definition.name)
+                        name_mapping.name_to_struct_name(&entity.canonical_status_code),
+                        name_mapping.name_to_property_name(&type_definition.name)
                     );
                     request_source_code += "Err(parsing_error) => Err(parsing_error)\n";
                     request_source_code += "}"
@@ -704,7 +700,7 @@ fn generate_operation(
                     "\"{}\" => Ok({}::{}),\n",
                     response_key,
                     response_enum_name,
-                    name_mapper.name_to_struct_name(&entity.canonical_status_code),
+                    name_mapping.name_to_struct_name(&entity.canonical_status_code),
                 )
             }
         }

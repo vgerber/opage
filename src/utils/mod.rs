@@ -1,1 +1,3 @@
-pub mod name_mapper;
+pub mod config;
+pub mod name_mapping;
+pub mod spec_ignore;

@@ -6,10 +6,10 @@ use std::{fs::File, io::Write, path::Path};
 
 use cli::cli;
 use generator::{
-    component::{generate_components, write_struct_database},
+    component::{generate_components, write_object_database, ObjectDatabase},
     paths::generate_paths,
 };
-use utils::name_mapper::NameMapper;
+use utils::config::Config;
 
 fn main() {
     let matches = cli().get_matches();
@@ -22,9 +22,7 @@ fn main() {
         .get_one::<String>("spec")
         .map(String::as_str)
         .expect("spec missing");
-    let name_mapping_file_path = matches
-        .get_one::<String>("name-mapping")
-        .map(String::as_str);
+    let config_file_path = matches.get_one::<String>("config").map(String::as_str);
 
     // Start generating
 
@@ -34,23 +32,23 @@ fn main() {
         Err(err) => panic!("{}", err.to_string()),
     };
 
-    // 2. Get mapper for invalid language names
-    let name_mapper = match name_mapping_file_path {
+    // 2. Load config (Get mapper for invalid language names, ignores...)
+    let config = match config_file_path {
         Some(mapping_file) => {
-            NameMapper::from(Path::new(mapping_file)).expect("Mapping json not found")
+            Config::from(Path::new(mapping_file)).expect("Failed to parse config")
         }
-        None => NameMapper::new(),
+        None => Config::new(),
     };
 
     // 3. Generate Code
     // 3.1 Components and database for type referencing
-    let struct_database = &mut generate_components(&spec, &name_mapper).unwrap();
-
+    let mut object_database = &mut generate_components(&spec, &config).unwrap();
     // 3.2 Generate paths requests
-    generate_paths(&spec, struct_database, &name_mapper);
+    generate_paths(&spec, &mut object_database, &config);
 
     // 3.3 Write all registered objects to individual type definitions
-    if let Err(err) = write_struct_database(struct_database, &name_mapper) {
+    if let Err(err) = write_object_database(output_dir, &mut object_database, &config.name_mapping)
+    {
         panic!("{}", err)
     }
 

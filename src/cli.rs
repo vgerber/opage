@@ -16,9 +16,9 @@ pub fn cli() -> Command {
                 .required(true),
         )
         .arg(
-            Arg::new("name-mapping")
-                .short('m')
-                .help("Name mapping json file")
+            Arg::new("config")
+                .short('c')
+                .help("(json) Configuration with name mappings and ignores")
                 .required(false),
         )
 }
