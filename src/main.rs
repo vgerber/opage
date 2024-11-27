@@ -44,7 +44,7 @@ fn main() {
     // 3.1 Components and database for type referencing
     let mut object_database = &mut generate_components(&spec, &config).unwrap();
     // 3.2 Generate paths requests
-    generate_paths(&spec, &mut object_database, &config);
+    generate_paths(output_dir, &spec, &mut object_database, &config);
 
     // 3.3 Write all registered objects to individual type definitions
     if let Err(err) = write_object_database(output_dir, &mut object_database, &config.name_mapping)
