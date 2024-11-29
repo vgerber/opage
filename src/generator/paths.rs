@@ -5,7 +5,7 @@ use std::{
 
 use oas3::{spec::Operation, Spec};
 
-use crate::utils::{config::Config, name_mapping::NameMapping};
+use crate::utils::config::Config;
 
 use super::{
     component::ObjectDatabase,
@@ -65,7 +65,8 @@ pub fn generate_paths(
                 &name,
                 operation.1,
                 object_database,
-                &config.name_mapping,
+                &config,
+                output_path,
             ) {
                 Ok(operation_id) => {
                     mod_file
@@ -87,10 +88,11 @@ fn write_operation_to_file(
     path: &str,
     operation: &Operation,
     object_database: &mut ObjectDatabase,
-    name_mapping: &NameMapping,
+    config: &Config,
+    output_path: &str,
 ) -> Result<String, String> {
     let operation_id = match operation.operation_id {
-        Some(ref operation_id) => &name_mapping.name_to_module_name(operation_id),
+        Some(ref operation_id) => &config.name_mapping.name_to_module_name(operation_id),
         None => {
             return Err(format!("{} get has no id", path));
         }
@@ -107,7 +109,7 @@ fn write_operation_to_file(
     let request_code = match generate_websocket {
         true => match websocket_request::generate_operation(
             spec,
-            name_mapping,
+            &config.name_mapping,
             &path,
             &operation,
             object_database,
@@ -117,7 +119,7 @@ fn write_operation_to_file(
         },
         _ => match default_request::generate_operation(
             spec,
-            name_mapping,
+            &config.name_mapping,
             method,
             &path,
             &operation,
@@ -130,7 +132,8 @@ fn write_operation_to_file(
         },
     };
 
-    let mut object_file = match File::create(format!("output/src/paths/{}.rs", operation_id)) {
+    let mut path_file = match File::create(format!("{}/src/paths/{}.rs", output_path, operation_id))
+    {
         Ok(file) => file,
         Err(err) => {
             return Err(format!(
@@ -141,6 +144,6 @@ fn write_operation_to_file(
         }
     };
 
-    object_file.write(request_code.as_bytes()).unwrap();
+    path_file.write(request_code.as_bytes()).unwrap();
     Ok(operation_id.clone())
 }
