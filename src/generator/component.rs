@@ -256,7 +256,7 @@ pub fn write_object_database(
         }
     }
 
-    let mut object_mod_file = match File::create("output/src/objects/mod.rs") {
+    let mut object_mod_file = match File::create(format!("{}/src/objects/mod.rs", output_dir)) {
         Ok(file) => file,
         Err(err) => return Err(format!("Unable to create file mod.rs {}", err.to_string())),
     };
