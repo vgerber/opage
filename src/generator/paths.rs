@@ -18,10 +18,12 @@ pub fn generate_paths(
     spec: &Spec,
     object_database: &mut ObjectDatabase,
     config: &Config,
-) {
+) -> Result<u32, String> {
+    let mut generated_path_count = 0;
+
     let paths = match spec.paths {
         Some(ref paths) => paths,
-        None => return (),
+        None => return Ok(generated_path_count),
     };
 
     fs::create_dir_all(format!("{}/src/paths", output_path)).expect("Creating objects dir failed");
@@ -29,8 +31,7 @@ pub fn generate_paths(
     let mut mod_file = match File::create(format!("{}/src/paths/mod.rs", output_path)) {
         Ok(file) => file,
         Err(err) => {
-            error!("Unable to create file mod.rs {}", err.to_string());
-            return;
+            return Err(format!("Unable to create file mod.rs {}", err.to_string()));
         }
     };
 
@@ -79,8 +80,10 @@ pub fn generate_paths(
                     error!("{}", err);
                 }
             }
+            generated_path_count += 1;
         }
     }
+    Ok(generated_path_count)
 }
 
 fn write_operation_to_file(

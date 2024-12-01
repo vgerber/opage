@@ -213,6 +213,9 @@ pub fn write_object_database(
     object_database: &ObjectDatabase,
     name_mapping: &NameMapping,
 ) -> Result<(), String> {
+    fs::create_dir_all(format!("{}/src/objects/", output_dir))
+        .expect("Creating objects dir failed");
+
     for (_, object_definition) in object_database {
         let object_name = match object_definition {
             ObjectDefinition::Struct(object_definition) => &object_definition.name,
@@ -220,8 +223,7 @@ pub fn write_object_database(
         };
 
         let module_name = name_mapping.name_to_module_name(object_name);
-        fs::create_dir_all(format!("{}/src/objects", output_dir))
-            .expect("Creating objects dir failed");
+
         let mut object_file =
             match File::create(format!("{}/src/objects/{}.rs", output_dir, module_name)) {
                 Ok(file) => file,
@@ -261,7 +263,13 @@ pub fn write_object_database(
 
     let mut object_mod_file = match File::create(format!("{}/src/objects/mod.rs", output_dir)) {
         Ok(file) => file,
-        Err(err) => return Err(format!("Unable to create file mod.rs {}", err.to_string())),
+        Err(err) => {
+            return Err(format!(
+                "Unable to create file {} {}",
+                format!("{}/src/objects/mod.rs", output_dir),
+                err.to_string()
+            ))
+        }
     };
 
     for (struct_name, _) in object_database {

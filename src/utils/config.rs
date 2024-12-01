@@ -5,7 +5,23 @@ use serde::Deserialize;
 use super::{name_mapping::NameMapping, spec_ignore::SpecIgnore};
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ProjectMetadata {
+    pub name: String,
+    pub version: String,
+}
+
+impl ProjectMetadata {
+    pub fn new() -> Self {
+        ProjectMetadata {
+            name: String::new(),
+            version: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Config {
+    pub project_metadata: ProjectMetadata,
     pub name_mapping: NameMapping,
     pub ignore: SpecIgnore,
 }
@@ -24,6 +40,7 @@ impl Config {
 
     pub fn new() -> Self {
         Config {
+            project_metadata: ProjectMetadata::new(),
             name_mapping: NameMapping::new(),
             ignore: SpecIgnore::new(),
         }

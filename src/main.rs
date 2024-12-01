@@ -6,6 +6,7 @@ use std::{fs::File, io::Write, path::Path};
 
 use cli::cli;
 use generator::{
+    cargo::generate_cargo_content,
     component::{generate_components, write_object_database},
     paths::generate_paths,
 };
@@ -32,10 +33,7 @@ fn main() {
     // Start generating
 
     // 1. Read spec
-    let spec = match oas3::from_path(Path::new(spec_file_path)) {
-        Ok(spec) => spec,
-        Err(err) => panic!("{}", err.to_string()),
-    };
+    let spec = oas3::from_path(Path::new(spec_file_path)).expect("Failed to read spec");
 
     // 2. Load config (Get mapper for invalid language names, ignores...)
     let config = match config_file_path {
@@ -49,22 +47,35 @@ fn main() {
     // 3.1 Components and database for type referencing
     let mut object_database = &mut generate_components(&spec, &config).unwrap();
     // 3.2 Generate paths requests
-    generate_paths(output_dir, &spec, &mut object_database, &config);
+    let generated_paths = generate_paths(output_dir, &spec, &mut object_database, &config)
+        .expect("Failed to generated paths");
 
     // 3.3 Write all registered objects to individual type definitions
-    if let Err(err) = write_object_database(output_dir, &mut object_database, &config.name_mapping)
-    {
-        panic!("{}", err)
-    }
-
+    write_object_database(output_dir, &mut object_database, &config.name_mapping)
+        .expect("Write objects failed");
     // 4. Project setup
     let mut lib_file =
         File::create(format!("{}/src/lib.rs", output_dir)).expect("Failed to create lib.rs");
 
-    lib_file
-        .write("pub mod objects;\n".to_string().as_bytes())
-        .unwrap();
-    lib_file
-        .write("pub mod paths;\n".to_string().as_bytes())
-        .unwrap();
+    if object_database.len() > 0 {
+        lib_file
+            .write("pub mod objects;\n".to_string().as_bytes())
+            .unwrap();
+    }
+
+    if generated_paths > 0 {
+        lib_file
+            .write("pub mod paths;\n".to_string().as_bytes())
+            .unwrap();
+    }
+
+    let mut cargo_file =
+        File::create(format!("{}/Cargo.toml", output_dir)).expect("Failed to create Cargo.toml");
+    cargo_file
+        .write(
+            generate_cargo_content(&config.project_metadata)
+                .expect("Failed to generate Cargo.toml")
+                .as_bytes(),
+        )
+        .expect("Failed to write Cargo.toml");
 }

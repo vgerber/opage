@@ -1,4 +1,8 @@
 {
+  "project_metadata": {
+    "name": "inline-object-same-name-test",
+    "version": "0.0.0"
+  },
   "name_mapping": {
     "struct_mapping": {
       "/TestObject/TestObject": "TestObjectData"
