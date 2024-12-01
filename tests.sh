@@ -1,0 +1,1 @@
+cargo run -- -s tests/resources/inline_object_same_name.openapi.yaml -o tests/output/inline_object_same_name -c tests/resources/inline_object_same_name.json

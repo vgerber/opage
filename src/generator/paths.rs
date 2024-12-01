@@ -3,6 +3,7 @@ use std::{
     io::Write,
 };
 
+use log::{error, info};
 use oas3::{spec::Operation, Spec};
 
 use crate::utils::config::Config;
@@ -28,18 +29,18 @@ pub fn generate_paths(
     let mut mod_file = match File::create(format!("{}/src/paths/mod.rs", output_path)) {
         Ok(file) => file,
         Err(err) => {
-            println!("Unable to create file mod.rs {}", err.to_string());
+            error!("Unable to create file mod.rs {}", err.to_string());
             return;
         }
     };
 
     for (name, path_item) in paths {
         if config.ignore.path_ignored(&name) {
-            println!("{} ignored", name);
+            info!("{} ignored", name);
             continue;
         }
 
-        println!("{}", name);
+        info!("{}", name);
 
         let mut operations = vec![];
         if let Some(ref operation) = path_item.get {
@@ -75,7 +76,7 @@ pub fn generate_paths(
                     ()
                 }
                 Err(err) => {
-                    println!("{}", err);
+                    error!("{}", err);
                 }
             }
         }

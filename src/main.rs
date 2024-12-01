@@ -9,7 +9,9 @@ use generator::{
     component::{generate_components, write_object_database},
     paths::generate_paths,
 };
-use utils::config::Config;
+use utils::{config::Config, log::Logger};
+
+static LOGGER: Logger = Logger;
 
 fn main() {
     let matches = cli().get_matches();
@@ -23,6 +25,9 @@ fn main() {
         .map(String::as_str)
         .expect("spec missing");
     let config_file_path = matches.get_one::<String>("config").map(String::as_str);
+
+    log::set_logger(&LOGGER).expect("Failed to set logger");
+    log::set_max_level(log::LevelFilter::Trace);
 
     // Start generating
 

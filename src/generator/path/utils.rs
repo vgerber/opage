@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
+use log::warn;
 use oas3::{
     spec::{ObjectOrReference, RequestBody, Response},
     Spec,
@@ -36,6 +37,7 @@ pub type ResponseEntities = HashMap<String, ResponseEntity>;
 pub fn generate_request_body(
     spec: &Spec,
     object_database: &mut ObjectDatabase,
+    definition_path: Vec<String>,
     name_mapping: &NameMapping,
     request_body: &ObjectOrReference<RequestBody>,
     function_name: &str,
@@ -51,7 +53,7 @@ pub fn generate_request_body(
     };
 
     if request.content.len() > 1 {
-        println!("Only a single json object is supported");
+        warn!("Only a single json object is supported");
     }
 
     let json_data = match request.content.get("application/json") {
@@ -67,19 +69,26 @@ pub fn generate_request_body(
                             "crate::objects::{}",
                             name_mapping.name_to_module_name(object_name)
                         ),
-                        name: name_mapping.name_to_struct_name(object_name).to_owned(),
+                        name: name_mapping
+                            .name_to_struct_name(&vec![object_name.to_string()], object_name)
+                            .to_owned(),
                     }),
-                    name: name_mapping.name_to_struct_name(object_name).to_owned(),
+                    name: name_mapping
+                        .name_to_struct_name(&vec![object_name.to_string()], object_name)
+                        .to_owned(),
                 }),
                 None => None,
             },
             ObjectOrReference::Object(object_schema) => match get_type_from_schema(
                 spec,
                 object_database,
+                definition_path.clone(),
                 object_schema,
                 Some(&format!(
                     "{}RequestBody",
-                    name_mapping.name_to_struct_name(&function_name).to_owned(),
+                    name_mapping
+                        .name_to_struct_name(&definition_path, &function_name)
+                        .to_owned(),
                 )),
                 name_mapping,
             ) {
@@ -103,6 +112,7 @@ pub fn generate_request_body(
 pub fn generate_responses(
     spec: &Spec,
     object_database: &mut ObjectDatabase,
+    definition_path: Vec<String>,
     name_mapping: &NameMapping,
     responses: &BTreeMap<String, Response>,
     function_name: &str,
@@ -128,7 +138,7 @@ pub fn generate_responses(
         };
 
         if response.content.len() > 1 {
-            println!("Only a single json object is supported");
+            warn!("Only a single json object is supported");
         }
 
         if response.content.len() == 0 {
@@ -155,19 +165,26 @@ pub fn generate_responses(
                                 "crate::objects::{}",
                                 name_mapping.name_to_module_name(object_name)
                             ),
-                            name: name_mapping.name_to_struct_name(object_name).to_owned(),
+                            name: name_mapping
+                                .name_to_struct_name(&vec![object_name.to_string()], object_name)
+                                .to_owned(),
                         }),
-                        name: name_mapping.name_to_struct_name(object_name).to_owned(),
+                        name: name_mapping
+                            .name_to_struct_name(&vec![object_name.to_string()], object_name)
+                            .to_owned(),
                     }),
                     None => None,
                 },
                 ObjectOrReference::Object(object_schema) => match get_type_from_schema(
                     spec,
                     object_database,
+                    definition_path.clone(),
                     object_schema,
                     Some(&format!(
                         "{}{}",
-                        name_mapping.name_to_struct_name(&function_name).to_owned(),
+                        name_mapping
+                            .name_to_struct_name(&definition_path, &function_name)
+                            .to_owned(),
                         canonical_status_code
                     )),
                     name_mapping,

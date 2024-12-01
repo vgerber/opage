@@ -1,0 +1,14 @@
+{
+  "name_mapping": {
+    "struct_mapping": {
+      "/TestObject/TestObject": "TestObjectData"
+    },
+    "property_mapping": {},
+    "module_mapping": {},
+    "status_code_mapping": {}
+  },
+  "ignore": {
+    "paths": [],
+    "components": []
+  }
+}

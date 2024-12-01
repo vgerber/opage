@@ -9,7 +9,7 @@ use crate::{
     utils::name_mapping::NameMapping,
 };
 use oas3::{
-    spec::{Operation, ParameterIn},
+    spec::{FromRef, ObjectOrReference, ObjectSchema, Operation, ParameterIn},
     Spec,
 };
 use std::collections::HashMap;
@@ -57,6 +57,8 @@ pub fn generate_operation(
     operation: &Operation,
     object_database: &mut ObjectDatabase,
 ) -> Result<String, String> {
+    let operation_definition_path: Vec<String> = vec![path.to_owned()];
+
     let function_name = match operation.operation_id {
         Some(ref operation_id) => name_mapping.name_to_module_name(operation_id),
         None => return Err("No operation_id found".to_owned()),
@@ -65,6 +67,7 @@ pub fn generate_operation(
     let response_entities = match generate_responses(
         spec,
         object_database,
+        operation_definition_path.clone(),
         name_mapping,
         &operation.responses(spec),
         &function_name,
@@ -85,23 +88,28 @@ pub fn generate_operation(
         TransferMediaType::ApplicationJson(type_definition) => type_definition,
     };
 
+    let path_parameters_struct_name = format!(
+        "{}PathParameters",
+        name_mapping.name_to_struct_name(&operation_definition_path, &function_name)
+    );
+    let mut path_parameters_definition_path = operation_definition_path.clone();
+    path_parameters_definition_path.push(path_parameters_struct_name.clone());
+
     let path_parameters_ordered = path
         .split("/")
         .filter(|&path_component| is_path_parameter(&path_component))
         .map(|path_component| path_component.replace("{", "").replace("}", ""))
         .map(|path_component| PropertyDefinition {
             module: None,
-            name: name_mapping.name_to_property_name(&path_component),
+            name: name_mapping
+                .name_to_property_name(&path_parameters_definition_path, &path_component),
             real_name: path_component,
             required: true,
             type_name: "&str".to_owned(),
         })
         .collect::<Vec<PropertyDefinition>>();
     let path_struct_definition = StructDefinition {
-        name: format!(
-            "{}PathParameters",
-            name_mapping.name_to_struct_name(&function_name)
-        ),
+        name: path_parameters_struct_name,
         used_modules: vec![],
         properties: path_parameters_ordered
             .iter()
@@ -118,6 +126,7 @@ pub fn generate_operation(
                 )
             })
             .collect::<HashMap<String, PropertyDefinition>>(),
+        local_objects: HashMap::new(),
     };
 
     let path_format_string = path
@@ -138,7 +147,8 @@ pub fn generate_operation(
     if !path_struct_definition.properties.is_empty() {
         function_parameters.push(format!(
             "{}: &{}",
-            name_mapping.name_to_property_name(&path_struct_definition.name),
+            name_mapping
+                .name_to_property_name(&operation_definition_path, &path_struct_definition.name),
             path_struct_definition.name
         ));
     }
@@ -181,11 +191,14 @@ pub fn generate_operation(
     let mut query_struct = StructDefinition {
         name: format!(
             "{}QueryParameters",
-            name_mapping.name_to_struct_name(&function_name)
+            name_mapping.name_to_struct_name(&operation_definition_path, &function_name)
         ),
         properties: HashMap::new(),
         used_modules: vec![],
+        local_objects: HashMap::new(),
     };
+    let mut query_operation_definition_path = operation_definition_path.clone();
+    query_operation_definition_path.push(query_struct.name.clone());
 
     for parameter_ref in &operation.parameters {
         let parameter = match parameter_ref.resolve(spec) {
@@ -197,20 +210,33 @@ pub fn generate_operation(
         }
 
         let parameter_type = match parameter.schema {
-            Some(schema) => match schema.resolve(spec) {
-                Ok(object_schema) => get_type_from_schema(
+            Some(schema) => match schema {
+                ObjectOrReference::Object(object_schema) => get_type_from_schema(
                     spec,
                     object_database,
+                    query_operation_definition_path.clone(),
                     &object_schema,
                     Some(&parameter.name),
                     name_mapping,
                 ),
-                Err(err) => {
-                    return Err(format!(
-                        "Failed to resolve parameter {} {}",
-                        parameter.name,
-                        err.to_string()
-                    ))
+                ObjectOrReference::Ref { ref_path } => {
+                    match ObjectSchema::from_ref(spec, &ref_path) {
+                        Ok(object_schema) => get_type_from_schema(
+                            spec,
+                            object_database,
+                            vec![],
+                            &object_schema,
+                            Some(&parameter.name),
+                            name_mapping,
+                        ),
+                        Err(err) => {
+                            return Err(format!(
+                                "Failed to resolve parameter {} {}",
+                                parameter.name,
+                                err.to_string()
+                            ))
+                        }
+                    }
                 }
             },
             None => return Err(format!("Parameter {} has no schema", parameter.name)),
@@ -218,9 +244,11 @@ pub fn generate_operation(
 
         let _ = match parameter_type {
             Ok(parameter_type) => query_struct.properties.insert(
-                name_mapping.name_to_property_name(&parameter.name),
+                name_mapping
+                    .name_to_property_name(&query_operation_definition_path, &parameter.name),
                 PropertyDefinition {
-                    name: name_mapping.name_to_property_name(&parameter.name),
+                    name: name_mapping
+                        .name_to_property_name(&query_operation_definition_path, &parameter.name),
                     module: parameter_type.module,
                     real_name: parameter.name,
                     required: match parameter.required {
@@ -238,7 +266,7 @@ pub fn generate_operation(
     if query_struct.properties.len() > 0 {
         function_parameters.push(format!(
             "{}: &{}",
-            name_mapping.name_to_property_name(&query_struct.name),
+            name_mapping.name_to_property_name(&operation_definition_path, &query_struct.name),
             query_struct.name
         ));
         query_struct_source_code += &query_struct.to_string(false);
@@ -251,6 +279,7 @@ pub fn generate_operation(
             match generate_request_body(
                 spec,
                 object_database,
+                operation_definition_path.clone(),
                 name_mapping,
                 request_body,
                 &function_name,
@@ -277,15 +306,18 @@ pub fn generate_operation(
                 }
                 function_parameters.push(format!(
                     "{}: {}",
-                    name_mapping.name_to_property_name(&type_definition.name),
+                    name_mapping
+                        .name_to_property_name(&operation_definition_path, &type_definition.name),
                     type_definition.name
                 ))
             }
         }
     }
 
-    let socket_stream_struct_name =
-        format!("{}Stream", name_mapping.name_to_struct_name(&function_name));
+    let socket_stream_struct_name = format!(
+        "{}Stream",
+        name_mapping.name_to_struct_name(&operation_definition_path, &function_name)
+    );
 
     request_source_code += &module_imports
         .iter()
@@ -332,7 +364,7 @@ pub fn generate_operation(
             .map(|(_, property)| format!(
                 "(\"{}\",{}.{}.to_string())",
                 property.real_name,
-                name_mapping.name_to_property_name(&query_struct.name),
+                name_mapping.name_to_property_name(&operation_definition_path, &query_struct.name),
                 property.name
             ))
             .collect::<Vec<String>>()
@@ -347,8 +379,8 @@ pub fn generate_operation(
     {
         request_source_code += &format!(
                 "{}.{}.iter().for_each(|query_parameter_item| query_parameters.push((\"{}\", query_parameter_item.to_string())));\n",
-                name_mapping.name_to_property_name(&query_struct.name),
-                name_mapping.name_to_property_name(&vector_property.name),
+                name_mapping.name_to_property_name(&operation_definition_path, &query_struct.name),
+                name_mapping.name_to_property_name(&operation_definition_path, &vector_property.name),
                 vector_property.real_name
             );
     });
@@ -361,7 +393,7 @@ pub fn generate_operation(
     {
         request_source_code += &format!(
             "if let Some(ref query_parameter) = {}.{} {{\n",
-            name_mapping.name_to_property_name(&query_struct.name),
+            name_mapping.name_to_property_name(&operation_definition_path, &query_struct.name),
             optional_property.name
         );
         if optional_property.type_name.starts_with("Vec<") {
@@ -383,8 +415,11 @@ pub fn generate_operation(
         .map(|parameter| {
             format!(
                 "{}.{}",
-                name_mapping.name_to_property_name(&path_struct_definition.name),
-                name_mapping.name_to_property_name(&parameter.name)
+                name_mapping.name_to_property_name(
+                    &operation_definition_path,
+                    &path_struct_definition.name
+                ),
+                name_mapping.name_to_property_name(&operation_definition_path, &parameter.name)
             )
         })
         .collect::<Vec<String>>()
