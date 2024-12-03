@@ -18,6 +18,7 @@ fn path_to_string(path: &Vec<String>, token_name: &str) -> String {
         0 => format!("/{}", token_name),
         _ => format!("/{}/{}", path_str, token_name),
     }
+    .replace("//", "/")
 }
 
 impl NameMapping {

@@ -5,32 +5,42 @@
     },
     "name_mapping": {
         "struct_mapping": {
-            "Box": "BoxObject",
-            "VirtualI/os": "VirtualIos",
-            "Experimental:ConfigurableCollisionScene": "ExperimentalConfigurableCollisionScene"
+            "/Box": "BoxObject",
+            "/Compound/Geometry/Box": "BoxObject",
+            "/Geometry/Box": "BoxObject",
+            "/cells/{cell}/devices/ResponseGetDevicesDevicesGet/VirtualI/os": "VirtualIos",
+            "/cells/{cell}/devices/ResponseGetDevicesDevicesGet/Experimental:ConfigurableCollisionScene": "ExperimentalConfigurableCollisionScene"
         },
         "property_mapping": {
-            "@type": "type_name",
-            "type": "type_name",
-            "box": "box_object",
-            "vec<io_value>": "io_values",
-            "vec<string>": "strings",
-            "vec<response_get_devices_devices_get>": "devices",
-            "vec<programer_runner_reference>": "programer_runner_references",
-            "limit_override.joint_acceleration_limits.joints": "limit_override_joint_acceleration_limits_joints",
-            "limit_override.tcp_orientation_velocity_limit": "limit_override_tcp_orientation_velocity_limit",
-            "limit_override.joint_velocity_limits.joints": "limit_override_joint_velocity_limits_joints",
-            "limit_override.tcp_velocity_limit": "limit_override_tcp_velocity_limit",
-            "limit_override.tcp_orientation_acceleration_limit": "limit_override_tcp_orientation_acceleration_limit",
-            "location_on_trajectory": "location_on_trajectory",
-            "responses_coordinate_system": "responses_coordinate_system",
-            "limit_override.tcp_acceleration_limit": "limit_override_tcp_acceleration_limit",
-            "virtual_i/os": "virtual_ios"
+            "/GoogleProtobufAny/@type": "type_name",
+            "/cells/{cell}/devices/ResponseGetDevicesDevicesGet/Timer/type": "type_name",
+            "/BoxObject/type": "type_name",
+            "/Box3/type": "type_name",
+            "/Configuration/type": "type_name",
+            "/RotationAngles/type": "type_name",
+            "/VirtualController/type": "type_name",
+            "/ValidationError/type": "type_name",
+            "/IoDescription/type": "type_name",
+            "/InternalVirtualController/type": "type_name",
+            "/PyripheryPyraeRobotRobotConfiguration/type": "type_name",
+            "/PyripheryRoboticsRobotcellTimerConfiguration/type": "type_name",
+            "/CoordinateSystem/Rotation/type": "type_name",
+            "/cells/{cell}/devices/ResponseGetDevicesDevicesGet/Configuration/type": "type_name",
+            "/Geometry/box": "box_object",
+            "/cells/{cell}/controllers/{controller}/ios/values/vec<io_value>": "io_values",
+            "/cells/{cell}/store/objects/vec<string>": "strings",
+            "/cells/{cell}/devices/vec<response_get_devices_devices_get>": "devices",
+            "/cells/{cell}/programs/runners/vec<programer_runner_reference>": "programer_runner_references",
+            "/cells/{cell}/motions/{motion}/executetotrajectory/StreamMoveToTrajectoryViaJointPtpQueryParameters/limit_override.joint_acceleration_limits.joints": "limit_override_joint_acceleration_limits_joints",
+            "/cells/{cell}/motions/{motion}/executetotrajectory/StreamMoveToTrajectoryViaJointPtpQueryParameters/limit_override.tcp_orientation_velocity_limit": "limit_override_tcp_orientation_velocity_limit",
+            "/cells/{cell}/motions/{motion}/executetotrajectory/StreamMoveToTrajectoryViaJointPtpQueryParameters/limit_override.joint_velocity_limits.joints": "limit_override_joint_velocity_limits_joints",
+            "/cells/{cell}/motions/{motion}/executetotrajectory/StreamMoveToTrajectoryViaJointPtpQueryParameters/limit_override.tcp_velocity_limit": "limit_override_tcp_velocity_limit",
+            "/cells/{cell}/motions/{motion}/executetotrajectory/StreamMoveToTrajectoryViaJointPtpQueryParameters/limit_override.tcp_orientation_acceleration_limit": "limit_override_tcp_orientation_acceleration_limit",
+            "/cells/{cell}/motions/{motion}/executetotrajectory/StreamMoveToTrajectoryViaJointPtpQueryParameters/location_on_trajectory": "location_on_trajectory",
+            "/cells/{cell}/motions/{motion}/executetotrajectory/StreamMoveToTrajectoryViaJointPtpQueryParameters/responses_coordinate_system": "responses_coordinate_system",
+            "/cells/{cell}/motions/{motion}/executetotrajectory/StreamMoveToTrajectoryViaJointPtpQueryParameters/limit_override.tcp_acceleration_limit": "limit_override_tcp_acceleration_limit"
         },
-        "module_mapping": {
-            "virtual_i/os": "virtual_ios",
-            "experimental:configurable_collision_scene": "experimental_configurable_collision_scene"
-        },
+        "module_mapping": {},
         "status_code_mapping": {
             "452": "RobotMotionBlocked"
         }

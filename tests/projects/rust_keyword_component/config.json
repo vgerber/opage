@@ -1,0 +1,21 @@
+{
+    "project_metadata": {
+        "name": "keyword-test",
+        "version": "0.0.0"
+    },
+    "name_mapping": {
+        "struct_mapping": {
+            "/Box": "BoxObject",
+            "/Geometry/Box": "BoxObject"
+        },
+        "property_mapping": {
+            "/Geometry/box": "box_object"
+        },
+        "module_mapping": {},
+        "status_code_mapping": {}
+    },
+    "ignore": {
+        "paths": [],
+        "components": []
+    }
+}
