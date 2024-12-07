@@ -1,14 +1,17 @@
 use std::collections::{BTreeMap, HashMap};
 
-use log::warn;
+use log::{trace, warn};
 use oas3::{
-    spec::{ObjectOrReference, RequestBody, Response},
+    spec::{ObjectOrReference, ObjectSchema, RequestBody, Response},
     Spec,
 };
 use reqwest::StatusCode;
 
 use crate::{
-    generator::component::{get_type_from_schema, ModuleInfo, ObjectDatabase, TypeDefinition},
+    generator::component::{
+        get_components_base_path, get_object_or_ref_struct_name, get_type_from_schema, ModuleInfo,
+        ObjectDatabase, TypeDefinition,
+    },
     utils::name_mapping::NameMapping,
 };
 
@@ -62,22 +65,28 @@ pub fn generate_request_body(
     };
     let json_object_definition_opt = match json_data.schema {
         Some(ref object_or_ref) => match object_or_ref {
-            ObjectOrReference::Ref { ref_path } => match ref_path.split("/").last() {
-                Some(object_name) => Some(TypeDefinition {
+            ObjectOrReference::Ref { ref_path: _ } => match get_object_or_ref_struct_name(
+                spec,
+                &definition_path,
+                name_mapping,
+                object_or_ref,
+            ) {
+                Ok((_, object_name)) => Some(TypeDefinition {
                     module: Some(ModuleInfo {
                         path: format!(
                             "crate::objects::{}",
-                            name_mapping.name_to_module_name(object_name)
+                            name_mapping.name_to_module_name(&object_name)
                         ),
-                        name: name_mapping
-                            .name_to_struct_name(&vec![object_name.to_string()], object_name)
-                            .to_owned(),
+                        name: object_name.clone(),
                     }),
-                    name: name_mapping
-                        .name_to_struct_name(&vec![object_name.to_string()], object_name)
-                        .to_owned(),
+                    name: object_name.clone(),
                 }),
-                None => None,
+                Err(err) => {
+                    return Err(format!(
+                        "Unable to determine response type ref name {}",
+                        err
+                    ))
+                }
             },
             ObjectOrReference::Object(object_schema) => match get_type_from_schema(
                 spec,
@@ -119,6 +128,7 @@ pub fn generate_responses(
 ) -> Result<ResponseEntities, String> {
     let mut response_entities = ResponseEntities::new();
     for (response_key, response) in responses {
+        trace!("Generate response {}", response_key);
         if response_key == "default" {
             continue;
         }
@@ -158,22 +168,28 @@ pub fn generate_responses(
         };
         let json_object_definition_opt = match json_data.schema {
             Some(ref object_or_ref) => match object_or_ref {
-                ObjectOrReference::Ref { ref_path } => match ref_path.split("/").last() {
-                    Some(object_name) => Some(TypeDefinition {
+                ObjectOrReference::Ref { ref_path: _ } => match get_object_or_ref_struct_name(
+                    spec,
+                    &definition_path,
+                    name_mapping,
+                    object_or_ref,
+                ) {
+                    Ok((_, object_name)) => Some(TypeDefinition {
                         module: Some(ModuleInfo {
                             path: format!(
                                 "crate::objects::{}",
-                                name_mapping.name_to_module_name(object_name)
+                                name_mapping.name_to_module_name(&object_name)
                             ),
-                            name: name_mapping
-                                .name_to_struct_name(&vec![object_name.to_string()], object_name)
-                                .to_owned(),
+                            name: object_name.clone(),
                         }),
-                        name: name_mapping
-                            .name_to_struct_name(&vec![object_name.to_string()], object_name)
-                            .to_owned(),
+                        name: object_name.clone(),
                     }),
-                    None => None,
+                    Err(err) => {
+                        return Err(format!(
+                            "Unable to determine response type ref name {}",
+                            err
+                        ))
+                    }
                 },
                 ObjectOrReference::Object(object_schema) => match get_type_from_schema(
                     spec,

@@ -1,0 +1,39 @@
+{
+    "project_metadata": {
+        "name": "wandelbots-api-client",
+        "version": "0.0.0"
+    },
+    "name_mapping": {
+        "struct_mapping": {
+            "/#/components/schemas/VirtualI/os": "VirtualIos",
+            "/#/components/schemas/Configuration/Type": "TypeName",
+            "/#/components/schemas/Timer/Type": "TypeName",
+            "/#/components/schemas/SimulatedRobotWithView/Type": "TypeName",
+            "/#/components/schemas/VirtualIos/Type": "TypeName",
+            "/#/components/schemas/VirtualOpcua/Type": "TypeName",
+            "/#/components/schemas/EtcdClient/Type": "TypeName",
+            "/#/components/schemas/OmniserviceConfiguration/Type": "TypeName",
+            "/#/components/schemas/OpcuaConnector/Type": "TypeName",
+            "/#/components/schemas/RobotControllerConfiguration/Type": "TypeName"
+        },
+        "property_mapping": {
+            "/#/components/schemas/Configuration/type": "type_name",
+            "/#/components/schemas/Timer/type": "type_name",
+            "/#/components/schemas/SimulatedRobotWithView/type": "type_name",
+            "/#/components/schemas/VirtualIos/type": "type_name",
+            "/#/components/schemas/VirtualOpcua/type": "type_name",
+            "/#/components/schemas/EtcdClient/type": "type_name",
+            "/#/components/schemas/OmniserviceConfiguration/type": "type_name",
+            "/#/components/schemas/OpcuaConnector/type": "type_name",
+            "/#/components/schemas/RobotControllerConfiguration/type": "type_name",
+            "/cells/cell/devices/vec<response_get_devices_devices_get>": "devices",
+            "/cells/cell/devices/vec<devices>": "devices"
+        },
+        "module_mapping": {},
+        "status_code_mapping": {}
+    },
+    "ignore": {
+        "paths": [],
+        "components": []
+    }
+}

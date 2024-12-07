@@ -98,7 +98,7 @@ fn write_operation_to_file(
     let operation_id = match operation.operation_id {
         Some(ref operation_id) => &config.name_mapping.name_to_module_name(operation_id),
         None => {
-            return Err(format!("{} get has no id", path));
+            return Err(format!("{} {} has no id", path, method.as_str()));
         }
     };
 

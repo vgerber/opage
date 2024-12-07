@@ -1,10 +1,11 @@
 use std::{
     collections::HashMap,
+    fmt::format,
     fs::{self, File},
     io::Write,
 };
 
-use log::info;
+use log::{error, info, trace};
 use oas3::{
     spec::{ObjectOrReference, ObjectSchema, SchemaTypeSet},
     Spec,
@@ -159,6 +160,14 @@ impl StructDefinition {
     }
 }
 
+pub fn get_components_base_path() -> Vec<String> {
+    vec![
+        String::from("#"),
+        String::from("components"),
+        String::from("schemas"),
+    ]
+}
+
 pub fn generate_components(spec: &Spec, config: &Config) -> Result<ObjectDatabase, String> {
     let components = match spec.components {
         Some(ref components) => components,
@@ -167,39 +176,68 @@ pub fn generate_components(spec: &Spec, config: &Config) -> Result<ObjectDatabas
 
     let mut object_database = ObjectDatabase::new();
 
-    for (name, object_ref) in &components.schemas {
-        if config.ignore.component_ignored(&name) {
-            info!("\"{}\" ignored", name);
+    for (component_name, object_ref) in &components.schemas {
+        if config.ignore.component_ignored(&component_name) {
+            info!("\"{}\" ignored", component_name);
             continue;
         }
-        // if name != "pyjectory__datatypes__serializer__Pose" {
-        //     continue;
-        // }
 
-        info!("Generating component \"{}\"", name);
+        info!("Generating component \"{}\"", component_name);
 
         let resolved_object = match object_ref.resolve(spec) {
             Ok(object) => object,
             Err(err) => {
-                info!("Unable to parse component {} {}", name, err.to_string());
+                error!(
+                    "Unable to parse component {} {}",
+                    component_name,
+                    err.to_string()
+                );
                 continue;
             }
         };
 
+        let definition_path = get_components_base_path();
+        let object_name = match resolved_object.title {
+            Some(ref title) => config
+                .name_mapping
+                .name_to_struct_name(&definition_path, &title),
+            None => config
+                .name_mapping
+                .name_to_struct_name(&definition_path, &component_name),
+        };
+
+        if object_database.contains_key(&object_name) {
+            info!(
+                "Component \"{}\" already found in database and will be skipped",
+                object_name
+            );
+            continue;
+        }
+
         let _ = match generate_object(
             spec,
             &mut object_database,
-            Vec::new(),
-            &name,
+            definition_path,
+            &object_name,
             &resolved_object,
             &config.name_mapping,
         ) {
-            Ok(struct_definition) => object_database.insert(
-                get_object_name(&struct_definition).clone(),
-                struct_definition,
-            ),
+            Ok(struct_definition) => {
+                let object_name = get_object_name(&struct_definition);
+
+                match object_database.contains_key(object_name) {
+                    true => {
+                        error!("ObjectDatabase already contains an object {}", object_name);
+                        None
+                    }
+                    _ => {
+                        trace!("Adding component/struct {} to database", object_name);
+                        object_database.insert(object_name.clone(), struct_definition)
+                    }
+                }
+            }
             Err(err) => {
-                info!("{} {}\n", name, err);
+                error!("{} {}\n", component_name, err);
                 None
             }
         };
@@ -228,7 +266,7 @@ pub fn write_object_database(
             match File::create(format!("{}/src/objects/{}.rs", output_dir, module_name)) {
                 Ok(file) => file,
                 Err(err) => {
-                    info!(
+                    error!(
                         "Unable to create file {}.rs {}",
                         module_name,
                         err.to_string()
@@ -328,32 +366,88 @@ fn oas3_type_to_string(oas3_type: &oas3::spec::SchemaType) -> String {
     }
 }
 
-fn get_object_or_ref_name(object_or_ref: &ObjectOrReference<ObjectSchema>) -> Option<String> {
-    let object_schema = match object_or_ref {
+pub fn get_object_or_ref_struct_name(
+    spec: &Spec,
+    definition_path: &Vec<String>,
+    name_mapping: &NameMapping,
+    object_or_reference: &ObjectOrReference<ObjectSchema>,
+) -> Result<(Vec<String>, String), String> {
+    let object_schema = match object_or_reference {
         ObjectOrReference::Ref { ref_path } => {
-            return ref_path.split("/").last().map(|name| name.to_owned())
+            let ref_definition_path = match get_base_path_to_ref(ref_path) {
+                Ok(ref_path) => ref_path,
+                Err(err) => return Err(err),
+            };
+
+            match object_or_reference.resolve(spec) {
+                Ok(object_schema) => match object_schema.title {
+                    Some(ref ref_title) => {
+                        return Ok((
+                            ref_definition_path.clone(),
+                            name_mapping.name_to_struct_name(&ref_definition_path, ref_title),
+                        ));
+                    }
+                    None => {
+                        let path_name = match ref_path.split("/").last() {
+                            Some(last_name) => last_name,
+                            None => {
+                                return Err(format!(
+                                    "Unable to retrieve name from ref path {}",
+                                    ref_path
+                                ))
+                            }
+                        };
+
+                        return Ok((
+                            ref_definition_path.clone(),
+                            name_mapping.name_to_struct_name(&ref_definition_path, path_name),
+                        ));
+                    }
+                },
+
+                Err(err) => return Err(format!("Failed to resolve object {}", err.to_string())),
+            }
         }
         ObjectOrReference::Object(object_schema) => object_schema,
     };
 
     if let Some(ref title) = object_schema.title {
-        return Some(title.clone());
+        return Ok((
+            definition_path.clone(),
+            name_mapping.name_to_struct_name(definition_path, &title),
+        ));
     }
 
     if let Some(ref schema_type) = object_schema.schema_type {
-        return match schema_type {
-            SchemaTypeSet::Single(single_type) => Some(oas3_type_to_string(single_type)),
-            SchemaTypeSet::Multiple(multiple_types) => Some(
-                multiple_types
-                    .iter()
-                    .map(oas3_type_to_string)
-                    .collect::<Vec<String>>()
-                    .join(""),
-            ),
+        let type_name = match schema_type {
+            SchemaTypeSet::Single(single_type) => oas3_type_to_string(single_type),
+            SchemaTypeSet::Multiple(multiple_types) => multiple_types
+                .iter()
+                .map(oas3_type_to_string)
+                .collect::<Vec<String>>()
+                .join(""),
         };
+
+        return Ok((
+            definition_path.clone(),
+            name_mapping.name_to_struct_name(definition_path, &type_name),
+        ));
     }
 
-    None
+    Err(format!("Unable to determine object name"))
+}
+
+pub fn get_base_path_to_ref(ref_path: &str) -> Result<Vec<String>, String> {
+    let mut path_segments = ref_path
+        .split("/")
+        .map(|segment| segment.to_owned())
+        .collect::<Vec<String>>();
+    if path_segments.len() < 4 {
+        return Err(format!("Expected 4 path segments in {}", ref_path));
+    }
+    // Remove component name
+    path_segments.pop();
+    Ok(path_segments)
 }
 
 pub fn generate_enum(
@@ -364,6 +458,7 @@ pub fn generate_enum(
     object_schema: &ObjectSchema,
     name_mapping: &NameMapping,
 ) -> Result<ObjectDefinition, String> {
+    trace!("Generating enum");
     let mut enum_definition = EnumDefinition {
         name: name_mapping
             .name_to_struct_name(&definition_path, name)
@@ -383,34 +478,59 @@ pub fn generate_enum(
     definition_path.push(enum_definition.name.clone());
 
     for any_object_ref in &object_schema.any_of {
-        let any_object = match any_object_ref.resolve(spec) {
-            Err(err) => {
-                info!("{} {}", name, err);
-                continue;
+        trace!("Generating enum value");
+        let (any_object_definition_path, any_object) = match any_object_ref {
+            ObjectOrReference::Ref { ref_path } => match any_object_ref.resolve(spec) {
+                Err(err) => {
+                    error!("{} {}", name, err);
+                    continue;
+                }
+                Ok(object_schema) => {
+                    let ref_definition_path = match get_base_path_to_ref(ref_path) {
+                        Ok(base_path) => base_path,
+                        Err(err) => {
+                            error!("Unable to retrieve ref path {}", err);
+                            continue;
+                        }
+                    };
+                    (ref_definition_path, object_schema)
+                }
+            },
+            ObjectOrReference::Object(object_schema) => {
+                (definition_path.clone(), object_schema.clone())
             }
-            Ok(property_definition) => property_definition,
         };
 
-        let object_type_name = match get_object_or_ref_name(any_object_ref) {
-            Some(object_type_name) => format!(
-                "{}Value",
-                name_mapping.name_to_struct_name(&definition_path, &object_type_name)
+        let object_type_enum_name = match get_object_or_ref_struct_name(
+            spec,
+            &any_object_definition_path,
+            name_mapping,
+            any_object_ref,
+        ) {
+            Ok((_, object_type_struct_name)) => name_mapping.name_to_struct_name(
+                &any_object_definition_path,
+                &format!("{}Value", object_type_struct_name),
             ),
-            None => return Err(format!("{} anonymous enum value are not supported", name)),
+            Err(err) => {
+                return Err(format!(
+                    "{} Anonymous enum value are not supported \"{}\"",
+                    name, err
+                ))
+            }
         };
 
         enum_definition.values.insert(
-            object_type_name.clone(),
+            object_type_enum_name.clone(),
             match get_type_from_schema(
                 spec,
                 object_database,
-                definition_path.clone(),
+                any_object_definition_path.clone(),
                 &any_object,
-                Some(&object_type_name),
+                Some(&object_type_enum_name),
                 name_mapping,
             ) {
                 Ok(type_definition) => EnumValue {
-                    name: object_type_name,
+                    name: object_type_enum_name,
                     value_type: type_definition,
                 },
                 Err(err) => {
@@ -431,6 +551,7 @@ pub fn generate_struct(
     object_schema: &ObjectSchema,
     name_mapping: &NameMapping,
 ) -> Result<ObjectDefinition, String> {
+    trace!("Generating struct");
     let mut struct_definition = StructDefinition {
         name: name_mapping
             .name_to_struct_name(&definition_path, name)
@@ -488,6 +609,7 @@ fn get_or_create_property(
     object_database: &mut ObjectDatabase,
     name_mapping: &NameMapping,
 ) -> Result<PropertyDefinition, String> {
+    trace!("Creating property {}", property_name);
     let property = match property_ref.resolve(spec) {
         Ok(property) => property,
         Err(err) => {
@@ -499,12 +621,23 @@ fn get_or_create_property(
         }
     };
 
+    let (property_type_definition_path, property_type_name) =
+        match get_object_or_ref_struct_name(spec, &definition_path, name_mapping, property_ref) {
+            Ok(type_naming_data) => type_naming_data,
+            Err(err) => {
+                return Err(format!(
+                    "Unable to determine property name of {} {}",
+                    property_name, err
+                ))
+            }
+        };
+
     match get_type_from_schema(
         spec,
         object_database,
-        definition_path.clone(),
+        property_type_definition_path,
         &property,
-        Some(&property_name),
+        Some(&property_type_name),
         name_mapping,
     ) {
         Ok(property_type_definition) => Ok(PropertyDefinition {
@@ -549,10 +682,35 @@ pub fn get_type_from_schema(
         );
     }
 
-    Err(format!(
-        "{} unable to determine type",
-        object_variable_fallback_name.unwrap_or("Unknown")
-    ))
+    let empty_object_name = match object_variable_fallback_name {
+        Some(empty_object_name) => empty_object_name,
+        None => return Err("Cannot create empty object without name".to_owned()),
+    };
+
+    // empty type
+    match get_or_create_object(
+        spec,
+        object_database,
+        definition_path,
+        empty_object_name,
+        object_schema,
+        name_mapping,
+    ) {
+        Ok(object_definition) => {
+            let object_name = get_object_name(&object_definition);
+            Ok(TypeDefinition {
+                name: object_name.clone(),
+                module: Some(ModuleInfo {
+                    path: format!(
+                        "crate::objects::{}",
+                        name_mapping.name_to_module_name(&object_name)
+                    ),
+                    name: object_name.clone(),
+                }),
+            })
+        }
+        Err(err) => Err(err),
+    }
 }
 
 pub fn get_type_from_any_type(
@@ -564,7 +722,7 @@ pub fn get_type_from_any_type(
     name_mapping: &NameMapping,
 ) -> Result<TypeDefinition, String> {
     let object_variable_name = match object_schema.title {
-        Some(ref title) => title,
+        Some(ref title) => &name_mapping.name_to_struct_name(&definition_path, &title),
         None => match object_variable_fallback_name {
             Some(title_fallback) => title_fallback,
             None => {
@@ -574,6 +732,8 @@ pub fn get_type_from_any_type(
             }
         },
     };
+
+    trace!("Generating any_type {}", object_variable_name);
 
     let object_definition = match get_or_create_object(
         spec,
@@ -620,7 +780,7 @@ pub fn get_type_from_schema_type(
         _ => return Err(format!("MultiType is not supported")),
     };
 
-    let mut object_variable_name = match object_schema.title {
+    let object_variable_name = match object_schema.title {
         Some(ref title) => title,
         None => match object_variable_fallback_name {
             Some(title_fallback) => title_fallback,
@@ -656,15 +816,14 @@ pub fn get_type_from_schema_type(
                 None => return Err(format!("Array has no item type")),
             };
 
-            object_variable_name = match **item_object_ref {
-                ObjectOrReference::Ref { ref ref_path } => {
-                    let path_segments = ref_path.split("/");
-                    match path_segments.last() {
-                        Some(ref_name) => ref_name,
-                        None => return Err(format!("ArrayItem ref has no _ref defined")),
-                    }
-                }
-                _ => object_variable_name,
+            let (item_type_definition_path, item_type_name) = match get_object_or_ref_struct_name(
+                spec,
+                &definition_path,
+                name_mapping,
+                &item_object_ref,
+            ) {
+                Ok(definition_path_and_name) => definition_path_and_name,
+                Err(err) => return Err(format!("Unable to determine ArrayItem type name {}", err)),
             };
 
             let item_object = match item_object_ref.resolve(spec) {
@@ -681,9 +840,9 @@ pub fn get_type_from_schema_type(
             match get_type_from_schema(
                 spec,
                 object_database,
-                definition_path,
+                item_type_definition_path,
                 &item_object,
-                Some(&object_variable_name),
+                Some(&item_type_name),
                 name_mapping,
             ) {
                 Ok(mut type_definition) => {
@@ -745,6 +904,15 @@ fn get_or_create_object(
             // the hull is needed to reference for cyclic dependencies where we would
             // otherwise create the same object every time we want to resolve the current one
             let struct_name = name_mapping.name_to_struct_name(&definition_path, name);
+            if object_database.contains_key(&struct_name) {
+                return Err(format!(
+                    "ObjectDatabase already contains an object {}",
+                    struct_name
+                ));
+            }
+
+            trace!("Adding struct {} to database", struct_name);
+
             object_database.insert(
                 struct_name.clone(),
                 ObjectDefinition::Struct(StructDefinition {
@@ -770,6 +938,7 @@ fn get_or_create_object(
                         }
                         ObjectDefinition::Enum(ref enum_definition) => enum_definition.name.clone(),
                     };
+                    trace!("Updating struct {} in database", name);
                     object_database.insert(name.clone(), created_struct);
                     object_database.get(&name)
                 }

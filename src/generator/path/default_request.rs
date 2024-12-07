@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use log::trace;
 use oas3::{
     spec::{Operation, ParameterIn},
     Spec,
@@ -25,6 +26,7 @@ pub fn generate_operation(
     operation: &Operation,
     object_database: &mut ObjectDatabase,
 ) -> Result<String, String> {
+    trace!("Generating {} {}", method.as_str(), path);
     let operation_definition_path: Vec<String> = vec![path.to_owned()];
     let function_name = match operation.operation_id {
         Some(ref operation_id) => name_mapping.name_to_module_name(operation_id),
@@ -44,6 +46,7 @@ pub fn generate_operation(
     };
 
     // Path parameters
+    trace!("Generating path parameters");
     let path_parameters_struct_name = format!(
         "{}PathParameters",
         name_mapping.name_to_struct_name(&operation_definition_path, &function_name)
@@ -100,6 +103,7 @@ pub fn generate_operation(
         .join("/");
 
     // Response enum
+    trace!("Generating response enum");
     let response_enum_name = format!(
         "{}ResponseType",
         name_mapping.name_to_struct_name(&operation_definition_path, &function_name)
@@ -179,6 +183,7 @@ pub fn generate_operation(
     response_enum_source_code += "}\n";
 
     // Query params
+    trace!("Generating query params");
     let mut query_struct = StructDefinition {
         name: format!(
             "{}QueryParameters",
@@ -254,6 +259,7 @@ pub fn generate_operation(
     }
 
     // Request Body
+    trace!("Generating request body");
     let request_body = match operation.request_body {
         Some(ref request_body) => {
             match generate_request_body(
@@ -294,6 +300,7 @@ pub fn generate_operation(
         }
     }
 
+    trace!("Generating source code");
     request_source_code += &module_imports
         .iter()
         .map(use_module_to_string)
@@ -311,7 +318,7 @@ pub fn generate_operation(
 
     // Function signature
     request_source_code += &format!(
-        "pub async fn {}(client: reqwest::Client, {}) -> Result<{}, reqwest::Error> {{\n",
+        "pub async fn {}(client: &reqwest::Client, {}) -> Result<{}, reqwest::Error> {{\n",
         function_name,
         function_parameters.join(", "),
         response_enum_name,

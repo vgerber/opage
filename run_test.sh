@@ -1,5 +1,5 @@
 #/bin/bash
-
+set -e
 dir=$1
 
 mkdir -p $dir/output

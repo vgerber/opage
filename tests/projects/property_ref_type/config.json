@@ -1,0 +1,18 @@
+{
+  "project_metadata": {
+    "name": "empty-spec",
+    "version": "0.0.0"
+  },
+  "name_mapping": {
+    "struct_mapping": {},
+    "property_mapping": {
+      "/#/components/schemas/Geometry/box": "geometry_box"
+    },
+    "module_mapping": {},
+    "status_code_mapping": {}
+  },
+  "ignore": {
+    "paths": [],
+    "components": []
+  }
+}
