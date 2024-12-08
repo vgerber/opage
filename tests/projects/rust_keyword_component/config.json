@@ -5,11 +5,10 @@
     },
     "name_mapping": {
         "struct_mapping": {
-            "/Box": "BoxObject",
-            "/Geometry/Box": "BoxObject"
+            "/#/components/schemas/Box": "BoxObject"
         },
         "property_mapping": {
-            "/Geometry/box": "box_object"
+            "/#/components/schemas/Geometry/box": "box_object"
         },
         "module_mapping": {},
         "status_code_mapping": {}
