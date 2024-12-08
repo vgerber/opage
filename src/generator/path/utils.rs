@@ -2,15 +2,15 @@ use std::collections::{BTreeMap, HashMap};
 
 use log::{trace, warn};
 use oas3::{
-    spec::{ObjectOrReference, ObjectSchema, RequestBody, Response},
+    spec::{ObjectOrReference, RequestBody, Response},
     Spec,
 };
 use reqwest::StatusCode;
 
 use crate::{
     generator::component::{
-        get_components_base_path, get_object_or_ref_struct_name, get_type_from_schema, ModuleInfo,
-        ObjectDatabase, TypeDefinition,
+        get_object_or_ref_struct_name, get_type_from_schema, ModuleInfo, ObjectDatabase,
+        TypeDefinition,
     },
     utils::name_mapping::NameMapping,
 };

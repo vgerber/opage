@@ -1,9 +1,6 @@
 use std::path::PathBuf;
 
-use opage::{
-    generator::component::{generate_components, ObjectDatabase},
-    utils::config::Config,
-};
+use opage::{generator::component::generate_components, utils::config::Config};
 
 #[test]
 fn title_of_component_used() {
