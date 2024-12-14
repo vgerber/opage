@@ -8,7 +8,10 @@ use oas3::{
 
 use crate::{
     generator::component::{
-        get_type_from_schema, ModuleInfo, ObjectDatabase, PropertyDefinition, StructDefinition,
+        object_definition::types::{
+            ModuleInfo, ObjectDatabase, PropertyDefinition, StructDefinition,
+        },
+        type_definition::get_type_from_schema,
     },
     utils::name_mapping::NameMapping,
 };

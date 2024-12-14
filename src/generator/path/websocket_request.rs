@@ -4,7 +4,10 @@ use super::utils::{
 };
 use crate::{
     generator::component::{
-        get_type_from_schema, ModuleInfo, ObjectDatabase, PropertyDefinition, StructDefinition,
+        object_definition::types::{
+            ModuleInfo, ObjectDatabase, PropertyDefinition, StructDefinition,
+        },
+        type_definition::get_type_from_schema,
     },
     utils::name_mapping::NameMapping,
 };
@@ -152,9 +155,6 @@ pub fn generate_operation(
             path_struct_definition.name
         ));
     }
-
-    //     use std::net::TcpStream;
-    // use tungstenite::{connect, protocol::CloseFrame, stream::MaybeTlsStream, Error, WebSocket};
 
     let mut module_imports = vec![
         ModuleInfo {

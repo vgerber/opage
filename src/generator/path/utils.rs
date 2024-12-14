@@ -9,8 +9,11 @@ use reqwest::StatusCode;
 
 use crate::{
     generator::component::{
-        get_object_or_ref_struct_name, get_type_from_schema, ModuleInfo, ObjectDatabase,
-        TypeDefinition,
+        object_definition::{
+            get_object_or_ref_struct_name,
+            types::{ModuleInfo, ObjectDatabase, TypeDefinition},
+        },
+        type_definition::get_type_from_schema,
     },
     utils::name_mapping::NameMapping,
 };

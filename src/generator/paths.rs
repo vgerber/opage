@@ -9,7 +9,7 @@ use oas3::{spec::Operation, Spec};
 use crate::utils::config::Config;
 
 use super::{
-    component::ObjectDatabase,
+    component::object_definition::types::ObjectDatabase,
     path::{default_request, websocket_request},
 };
 
