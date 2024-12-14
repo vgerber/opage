@@ -318,7 +318,7 @@ pub fn generate_operation(
 
     // Function signature
     request_source_code += &format!(
-        "pub async fn {}(client: &reqwest::Client, {}) -> Result<{}, reqwest::Error> {{\n",
+        "pub async fn {}(client: &reqwest::Client, server: &str, {}) -> Result<{}, reqwest::Error> {{\n",
         function_name,
         function_parameters.join(", "),
         response_enum_name,
@@ -403,7 +403,7 @@ pub fn generate_operation(
     };
 
     request_source_code += &format!(
-        "    let response = match client.{}(format!(\"{}\", {})).query(&query_parameters){}.send().await\n",
+        "    let response = match client.{}(format!(\"{{server}}{}\", {})).query(&query_parameters){}.send().await\n",
         method.as_str().to_lowercase(),
         path_format_string,
         path_parameters_ordered.iter().map(|parameter| format!("{}.{}", name_mapping.name_to_property_name(&operation_definition_path, &path_struct_definition.name), name_mapping.name_to_property_name(&operation_definition_path, &parameter.name))).collect::<Vec<String>>().join(","),
