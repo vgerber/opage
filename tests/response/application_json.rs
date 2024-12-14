@@ -1,5 +1,8 @@
 use opage::{
-    generator::{component::ObjectDatabase, path::default_request::generate_operation},
+    generator::{
+        component::object_definition::types::ObjectDatabase,
+        path::default_request::generate_operation,
+    },
     utils::name_mapping::NameMapping,
 };
 use reqwest::Method;
