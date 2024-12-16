@@ -3,13 +3,18 @@ use opage::{
         component::object_definition::types::ObjectDatabase,
         path::default_request::generate_operation,
     },
-    utils::name_mapping::NameMapping,
+    utils::{log::Logger, name_mapping::NameMapping},
 };
 use reqwest::Method;
 use std::path::PathBuf;
 
+static LOGGER: Logger = Logger;
+
 #[test]
 fn empty_json() {
+    log::set_logger(&LOGGER).expect("Failed to set logger");
+    log::set_max_level(log::LevelFilter::Trace);
+
     let mut spec_file_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     spec_file_path.push("tests/response/specs/empty_json.openapi.yaml");
 
@@ -27,5 +32,5 @@ fn empty_json() {
         &path_spec.post.as_ref().unwrap(),
         &mut object_database,
     )
-    .unwrap();
+    .expect("Failed to generated path");
 }

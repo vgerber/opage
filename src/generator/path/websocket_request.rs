@@ -88,7 +88,14 @@ pub fn generate_operation(
     };
 
     let socket_transfer_type_definition = match socket_transferred_media_type {
-        TransferMediaType::ApplicationJson(type_definition) => type_definition,
+        TransferMediaType::ApplicationJson(type_definition) => match type_definition {
+            Some(type_definition) => type_definition,
+            None => {
+                return Err(format!(
+                    "Websocket with empty response body is not supported"
+                ))
+            }
+        },
     };
 
     let path_parameters_struct_name = format!(
@@ -298,19 +305,24 @@ pub fn generate_operation(
 
     if let Some(ref request_body) = request_body {
         match request_body.content {
-            TransferMediaType::ApplicationJson(ref type_definition) => {
-                if let Some(ref module) = type_definition.module {
-                    if !module_imports.contains(module) {
-                        module_imports.push(module.clone());
+            TransferMediaType::ApplicationJson(ref type_definition) => match type_definition {
+                Some(ref type_definition) => {
+                    if let Some(ref module) = type_definition.module {
+                        if !module_imports.contains(module) {
+                            module_imports.push(module.clone());
+                        }
                     }
+                    function_parameters.push(format!(
+                        "{}: {}",
+                        name_mapping.name_to_property_name(
+                            &operation_definition_path,
+                            &type_definition.name
+                        ),
+                        type_definition.name
+                    ))
                 }
-                function_parameters.push(format!(
-                    "{}: {}",
-                    name_mapping
-                        .name_to_property_name(&operation_definition_path, &type_definition.name),
-                    type_definition.name
-                ))
-            }
+                None => (),
+            },
         }
     }
 

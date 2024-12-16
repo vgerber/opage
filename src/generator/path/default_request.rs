@@ -50,10 +50,11 @@ pub fn generate_operation(
 
     // Path parameters
     trace!("Generating path parameters");
-    let path_parameters_struct_name = format!(
-        "{}PathParameters",
-        name_mapping.name_to_struct_name(&operation_definition_path, &function_name)
+    let path_parameters_struct_name = name_mapping.name_to_struct_name(
+        &operation_definition_path,
+        &format!("{}PathParameters", function_name),
     );
+
     let mut path_parameters_definition_path = operation_definition_path.clone();
     path_parameters_definition_path.push(path_parameters_struct_name.clone());
 
@@ -71,10 +72,7 @@ pub fn generate_operation(
         })
         .collect::<Vec<PropertyDefinition>>();
     let path_struct_definition = StructDefinition {
-        name: format!(
-            "{}PathParameters",
-            name_mapping.name_to_struct_name(&operation_definition_path, &function_name)
-        ),
+        name: path_parameters_struct_name,
         used_modules: vec![],
         local_objects: HashMap::new(),
         properties: path_parameters_ordered
@@ -107,9 +105,9 @@ pub fn generate_operation(
 
     // Response enum
     trace!("Generating response enum");
-    let response_enum_name = format!(
-        "{}ResponseType",
-        name_mapping.name_to_struct_name(&operation_definition_path, &function_name)
+    let response_enum_name = name_mapping.name_to_struct_name(
+        &operation_definition_path,
+        &format!("{}ResponseType", &function_name),
     );
     let mut response_enum_definition_path = operation_definition_path.clone();
     response_enum_definition_path.push(response_enum_name.clone());
@@ -138,8 +136,8 @@ pub fn generate_operation(
     for (_, entity) in &response_entities {
         match entity.content {
             Some(ref content) => match content {
-                TransferMediaType::ApplicationJson(ref type_definition) => {
-                    match type_definition.module {
+                TransferMediaType::ApplicationJson(ref type_definition) => match type_definition {
+                    Some(type_definition) => match type_definition.module {
                         Some(ref module_info) => {
                             if module_imports.contains(module_info) {
                                 continue;
@@ -147,8 +145,9 @@ pub fn generate_operation(
                             module_imports.push(module_info.clone());
                         }
                         _ => (),
-                    }
-                }
+                    },
+                    None => (),
+                },
             },
             None => (),
         }
@@ -159,16 +158,27 @@ pub fn generate_operation(
     for (_, entity) in &response_entities {
         match entity.content {
             Some(ref content) => match content {
-                TransferMediaType::ApplicationJson(ref type_definition) => {
-                    response_enum_source_code += &format!(
-                        "{}({}),\n",
-                        name_mapping.name_to_struct_name(
-                            &response_enum_definition_path,
-                            &entity.canonical_status_code
-                        ),
-                        type_definition.name,
-                    )
-                }
+                TransferMediaType::ApplicationJson(ref type_definition) => match type_definition {
+                    Some(type_definition) => {
+                        response_enum_source_code += &format!(
+                            "{}({}),\n",
+                            name_mapping.name_to_struct_name(
+                                &response_enum_definition_path,
+                                &entity.canonical_status_code
+                            ),
+                            type_definition.name,
+                        )
+                    }
+                    None => {
+                        response_enum_source_code += &format!(
+                            "{},\n",
+                            name_mapping.name_to_struct_name(
+                                &response_enum_definition_path,
+                                &entity.canonical_status_code
+                            ),
+                        )
+                    }
+                },
             },
             None => {
                 response_enum_source_code += &format!(
@@ -188,9 +198,9 @@ pub fn generate_operation(
     // Query params
     trace!("Generating query params");
     let mut query_struct = StructDefinition {
-        name: format!(
-            "{}QueryParameters",
-            name_mapping.name_to_struct_name(&operation_definition_path, &function_name)
+        name: name_mapping.name_to_struct_name(
+            &operation_definition_path,
+            &format!("{}QueryParameters", &function_name),
         ),
         properties: HashMap::new(),
         used_modules: vec![],
@@ -287,18 +297,25 @@ pub fn generate_operation(
 
     if let Some(ref request_body) = request_body {
         match request_body.content {
-            TransferMediaType::ApplicationJson(ref type_definition) => {
-                if let Some(ref module) = type_definition.module {
-                    if !module_imports.contains(module) {
-                        module_imports.push(module.clone());
+            TransferMediaType::ApplicationJson(ref type_definition_opt) => {
+                match type_definition_opt {
+                    Some(ref type_definition) => {
+                        if let Some(ref module) = type_definition.module {
+                            if !module_imports.contains(module) {
+                                module_imports.push(module.clone());
+                            }
+                        }
+                        function_parameters.push(format!(
+                            "{}: {}",
+                            name_mapping.name_to_property_name(
+                                &operation_definition_path,
+                                &type_definition.name
+                            ),
+                            type_definition.name
+                        ))
                     }
+                    None => trace!("Empty request body not added to function params"),
                 }
-                function_parameters.push(format!(
-                    "{}: {}",
-                    name_mapping
-                        .name_to_property_name(&operation_definition_path, &type_definition.name),
-                    type_definition.name
-                ))
             }
         }
     }
@@ -394,13 +411,18 @@ pub fn generate_operation(
 
     let body_build = match request_body {
         Some(request_body) => match request_body.content {
-            TransferMediaType::ApplicationJson(type_definition) => {
-                format!(
-                    ".json(&{})",
-                    name_mapping
-                        .name_to_property_name(&operation_definition_path, &type_definition.name)
-                )
-            }
+            TransferMediaType::ApplicationJson(type_definition) => match type_definition {
+                Some(type_definition) => {
+                    format!(
+                        ".json(&{})",
+                        name_mapping.name_to_property_name(
+                            &operation_definition_path,
+                            &type_definition.name
+                        )
+                    )
+                }
+                None => ".json(&serde_json::json!({}))".to_owned(),
+            },
         },
         None => String::new(),
     };
@@ -421,32 +443,45 @@ pub fn generate_operation(
 
     for (response_key, entity) in &response_entities {
         match entity.content {
-            Some(ref content) => match content {
-                TransferMediaType::ApplicationJson(ref type_definition) => {
-                    request_source_code += &format!(
-                        "\"{}\" => match response.json::<{}>().await {{\n",
-                        response_key, type_definition.name
-                    );
+            Some(ref transfer_media_type) => match transfer_media_type {
+                TransferMediaType::ApplicationJson(ref type_definition) => match type_definition {
+                    Some(type_definition) => {
+                        request_source_code += &format!(
+                            "\"{}\" => match response.json::<{}>().await {{\n",
+                            response_key, type_definition.name
+                        );
 
-                    request_source_code += &format!(
-                        "Ok({}) => Ok({}::{}({})),\n",
-                        name_mapping.name_to_property_name(
-                            &operation_definition_path,
-                            &type_definition.name
-                        ),
-                        response_enum_name,
-                        name_mapping.name_to_struct_name(
-                            &operation_definition_path,
-                            &entity.canonical_status_code
-                        ),
-                        name_mapping.name_to_property_name(
-                            &operation_definition_path,
-                            &type_definition.name
-                        )
-                    );
-                    request_source_code += "Err(parsing_error) => Err(parsing_error)\n";
-                    request_source_code += "}"
-                }
+                        request_source_code += &format!(
+                            "Ok({}) => Ok({}::{}({})),\n",
+                            name_mapping.name_to_property_name(
+                                &operation_definition_path,
+                                &type_definition.name
+                            ),
+                            response_enum_name,
+                            name_mapping.name_to_struct_name(
+                                &operation_definition_path,
+                                &entity.canonical_status_code
+                            ),
+                            name_mapping.name_to_property_name(
+                                &operation_definition_path,
+                                &type_definition.name
+                            )
+                        );
+                        request_source_code += "Err(parsing_error) => Err(parsing_error)\n";
+                        request_source_code += "}"
+                    }
+                    None => {
+                        request_source_code += &format!(
+                            "\"{}\" => Ok({}::{}),\n",
+                            response_key,
+                            response_enum_name,
+                            name_mapping.name_to_struct_name(
+                                &operation_definition_path,
+                                &entity.canonical_status_code
+                            ),
+                        );
+                    }
+                },
             },
             None => {
                 request_source_code += &format!(

@@ -43,6 +43,13 @@ pub fn modules_to_string(modules: &Vec<&ModuleInfo>) -> String {
     module_import_string
 }
 
+pub fn is_object_empty(object_schema: &ObjectSchema) -> bool {
+    return object_schema.schema_type.is_none()
+        && object_schema.any_of.is_empty()
+        && object_schema.all_of.is_empty()
+        && object_schema.one_of.is_empty();
+}
+
 pub fn generate_object(
     spec: &Spec,
     object_database: &mut ObjectDatabase,
@@ -51,6 +58,10 @@ pub fn generate_object(
     object_schema: &ObjectSchema,
     name_mapping: &NameMapping,
 ) -> Result<ObjectDefinition, String> {
+    if is_object_empty(object_schema) {
+        return Err("Object is empty".to_string());
+    }
+
     if object_schema.any_of.len() > 0 {
         return generate_enum(
             spec,
@@ -398,53 +409,49 @@ pub fn get_or_create_object(
     property_ref: &ObjectSchema,
     name_mapping: &NameMapping,
 ) -> Result<ObjectDefinition, String> {
-    let struct_in_database_opt =
-        match object_database.get(&name_mapping.name_to_struct_name(&definition_path, name)) {
-            Some(struct_in_database) => Some(struct_in_database),
-            None => {
-                // create shallow hull which will be filled in later
-                // the hull is needed to reference for cyclic dependencies where we would
-                // otherwise create the same object every time we want to resolve the current one
-                let struct_name = name_mapping.name_to_struct_name(&definition_path, name);
-                if object_database.contains_key(&struct_name) {
-                    return Err(format!(
-                        "ObjectDatabase already contains an object {}",
-                        struct_name
-                    ));
-                }
+    if let Some(object_in_database) =
+        object_database.get(&name_mapping.name_to_struct_name(&definition_path, name))
+    {
+        return Ok(object_in_database.clone());
+    }
 
-                trace!("Adding struct {} to database", struct_name);
+    // create shallow hull which will be filled in later
+    // the hull is needed to reference for cyclic dependencies where we would
+    // otherwise create the same object every time we want to resolve the current one
+    let struct_name = name_mapping.name_to_struct_name(&definition_path, name);
+    if object_database.contains_key(&struct_name) {
+        return Err(format!(
+            "ObjectDatabase already contains an object {}",
+            struct_name
+        ));
+    }
 
-                object_database.insert(
-                    struct_name.clone(),
-                    ObjectDefinition::Struct(StructDefinition {
-                        used_modules: vec![],
-                        name: struct_name.clone(),
-                        properties: HashMap::new(),
-                        local_objects: HashMap::new(),
-                    }),
-                );
+    trace!("Adding struct {} to database", struct_name);
 
-                match generate_object(
-                    spec,
-                    object_database,
-                    definition_path,
-                    &struct_name,
-                    property_ref,
-                    name_mapping,
-                ) {
-                    Ok(ref created_struct) => {
-                        let name = get_object_name(created_struct);
-                        trace!("Updating struct {} in database", name);
-                        object_database.insert(name.clone(), created_struct.clone());
-                        object_database.get(name)
-                    }
-                    Err(_) => None,
-                }
-            }
-        };
-    match struct_in_database_opt {
-        Some(struct_in_database) => Ok(struct_in_database.clone()),
-        None => Err(format!("Struct {} not found", name)),
+    object_database.insert(
+        struct_name.clone(),
+        ObjectDefinition::Struct(StructDefinition {
+            used_modules: vec![],
+            name: struct_name.clone(),
+            properties: HashMap::new(),
+            local_objects: HashMap::new(),
+        }),
+    );
+
+    match generate_object(
+        spec,
+        object_database,
+        definition_path,
+        &struct_name,
+        property_ref,
+        name_mapping,
+    ) {
+        Ok(created_struct) => {
+            let name = get_object_name(&created_struct);
+            trace!("Updating struct {} in database", name);
+            object_database.insert(name.clone(), created_struct.clone());
+            Ok(created_struct)
+        }
+        Err(err) => Err(format!("Failed to generate object: {}", err)),
     }
 }
