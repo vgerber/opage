@@ -76,13 +76,13 @@ pub fn generate_components(spec: &Spec, config: &Config) -> Result<ObjectDatabas
             }
         };
 
-        if let ObjectDefinition::Primitive(type_definition) = object_definition {
-            trace!(
-                "Primitive object {} will not be added to database",
-                type_definition.name
-            );
-            continue;
-        }
+        // if let ObjectDefinition::Primitive(type_definition) = object_definition {
+        //     trace!(
+        //         "Primitive object {} will not be added to database",
+        //         type_definition.name
+        //     );
+        //     continue;
+        // }
 
         let object_name = get_object_name(&object_definition);
 
@@ -148,12 +148,12 @@ pub fn write_object_database(
                     .write(enum_definition.to_string(true).as_bytes())
                     .unwrap();
             }
-            ObjectDefinition::Primitive(type_definition) => {
+            ObjectDefinition::Primitive(primitive_definition) => {
                 object_file
                     .write(
                         modules_to_string(
-                            &type_definition
-                                .module
+                            &primitive_definition
+                                .primitive_type.module
                                 .as_ref()
                                 .map_or(vec![], |module| vec![module]),
                         )
@@ -163,7 +163,7 @@ pub fn write_object_database(
                 object_file.write("\n".as_bytes()).unwrap();
 
                 object_file
-                    .write(format!("type {};\n", type_definition.name).as_bytes())
+                    .write(format!("pub type {} = {};\n", primitive_definition.name, primitive_definition.primitive_type.name).as_bytes())
                     .unwrap();
             }
         }

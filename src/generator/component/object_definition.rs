@@ -6,7 +6,7 @@ use oas3::{
     Spec,
 };
 use types::{
-    EnumDefinition, EnumValue, ModuleInfo, ObjectDefinition, PropertyDefinition, StructDefinition,
+    EnumDefinition, EnumValue, ModuleInfo, ObjectDefinition, PrimitveDefinition, PropertyDefinition, StructDefinition
 };
 
 use crate::utils::name_mapping::NameMapping;
@@ -108,7 +108,7 @@ pub fn generate_object(
                 Some(name),
                 name_mapping,
             ) {
-                Ok(type_definition) => Ok(ObjectDefinition::Primitive(type_definition)),
+                Ok(type_definition) => Ok(ObjectDefinition::Primitive(PrimitveDefinition { name: name.to_owned(), primitive_type: type_definition })),
                 Err(err) => Err(err),
             },
         },
