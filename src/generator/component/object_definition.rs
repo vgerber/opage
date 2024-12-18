@@ -45,6 +45,7 @@ pub fn modules_to_string(modules: &Vec<&ModuleInfo>) -> String {
 
 pub fn is_object_empty(object_schema: &ObjectSchema) -> bool {
     return object_schema.schema_type.is_none()
+        && object_schema.const_value.is_none()
         && object_schema.any_of.is_empty()
         && object_schema.all_of.is_empty()
         && object_schema.one_of.is_empty();
@@ -63,7 +64,18 @@ pub fn generate_object(
     }
 
     if object_schema.any_of.len() > 0 {
-        return generate_enum(
+        return generate_enum_from_any(
+            spec,
+            object_database,
+            definition_path,
+            name,
+            object_schema,
+            name_mapping,
+        );
+    }
+
+    if object_schema.one_of.len() > 0 {
+        return generate_enum_from_one_of(
             spec,
             object_database,
             definition_path,
@@ -75,7 +87,7 @@ pub fn generate_object(
 
     let schema_type = match object_schema.schema_type {
         Some(ref schema_type) => schema_type,
-        None => return Err(format!("Object {} has no type info", name)),
+        None =>  &SchemaTypeSet::Single(oas3::spec::SchemaType::String)
     };
 
     match schema_type {
@@ -200,7 +212,7 @@ pub fn get_base_path_to_ref(ref_path: &str) -> Result<Vec<String>, String> {
     Ok(path_segments)
 }
 
-pub fn generate_enum(
+pub fn generate_enum_from_any(
     spec: &Spec,
     object_database: &mut ObjectDatabase,
     mut definition_path: Vec<String>,
@@ -292,6 +304,100 @@ pub fn generate_enum(
     }
     Ok(ObjectDefinition::Enum(enum_definition))
 }
+
+pub fn generate_enum_from_one_of(
+    spec: &Spec,
+    object_database: &mut ObjectDatabase,
+    mut definition_path: Vec<String>,
+    name: &str,
+    object_schema: &ObjectSchema,
+    name_mapping: &NameMapping,
+) -> Result<ObjectDefinition, String> {
+    trace!("Generating enum");
+    let mut enum_definition = EnumDefinition {
+        name: name_mapping
+            .name_to_struct_name(&definition_path, name)
+            .to_owned(),
+        values: HashMap::new(),
+        used_modules: vec![
+            ModuleInfo {
+                name: "Serialize".to_owned(),
+                path: "serde".to_owned(),
+            },
+            ModuleInfo {
+                name: "Deserialize".to_owned(),
+                path: "serde".to_owned(),
+            },
+        ],
+    };
+    definition_path.push(enum_definition.name.clone());
+
+    for one_of_object_ref in &object_schema.one_of {
+        trace!("Generating enum value");
+        let (one_of_object_definition_path, one_of_object) = match one_of_object_ref {
+            ObjectOrReference::Ref { ref_path } => match one_of_object_ref.resolve(spec) {
+                Err(err) => {
+                    error!("{} {}", name, err);
+                    continue;
+                }
+                Ok(object_schema) => {
+                    let ref_definition_path = match get_base_path_to_ref(ref_path) {
+                        Ok(base_path) => base_path,
+                        Err(err) => {
+                            error!("Unable to retrieve ref path {}", err);
+                            continue;
+                        }
+                    };
+                    (ref_definition_path, object_schema)
+                }
+            },
+            ObjectOrReference::Object(object_schema) => {
+                (definition_path.clone(), object_schema.clone())
+            }
+        };
+
+        let object_type_enum_name = match get_object_or_ref_struct_name(
+            spec,
+            &one_of_object_definition_path,
+            name_mapping,
+            one_of_object_ref,
+        ) {
+            Ok((_, object_type_struct_name)) => name_mapping.name_to_struct_name(
+                &one_of_object_definition_path,
+                &format!("{}Value", object_type_struct_name),
+            ),
+            Err(err) => {
+                return Err(format!(
+                    "{} Anonymous enum value are not supported \"{}\"",
+                    name, err
+                ))
+            }
+        };
+
+        enum_definition.values.insert(
+            object_type_enum_name.clone(),
+            match get_type_from_schema(
+                spec,
+                object_database,
+                one_of_object_definition_path.clone(),
+                &one_of_object,
+                Some(&object_type_enum_name),
+                name_mapping,
+            ) {
+                Ok(type_definition) => EnumValue {
+                    name: object_type_enum_name,
+                    value_type: type_definition,
+                },
+                Err(err) => {
+                    info!("{} {}", name, err);
+                    continue;
+                }
+            },
+        );
+    }
+    Ok(ObjectDefinition::Enum(enum_definition))
+}
+
 
 pub fn generate_struct(
     spec: &Spec,

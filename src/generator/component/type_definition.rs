@@ -44,36 +44,17 @@ pub fn get_type_from_schema(
             name_mapping,
         );
     }
-
-    let empty_object_name = match object_variable_fallback_name {
-        Some(empty_object_name) => empty_object_name,
-        None => return Err("Cannot create empty object without name".to_owned()),
-    };
-
-    // empty type
-    match get_or_create_object(
+    
+    // Fallback to string if no type is set
+    get_type_from_schema_type(
         spec,
         object_database,
         definition_path,
-        empty_object_name,
+        &SchemaTypeSet::Single(oas3::spec::SchemaType::String),
         object_schema,
+        object_variable_fallback_name,
         name_mapping,
-    ) {
-        Ok(object_definition) => {
-            let object_name = get_object_name(&object_definition);
-            Ok(TypeDefinition {
-                name: object_name.clone(),
-                module: Some(ModuleInfo {
-                    path: format!(
-                        "crate::objects::{}",
-                        name_mapping.name_to_module_name(&object_name)
-                    ),
-                    name: object_name.clone(),
-                }),
-            })
-        }
-        Err(err) => Err(err),
-    }
+    )
 }
 
 pub fn get_type_from_any_type(
