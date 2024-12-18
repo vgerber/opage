@@ -1,5 +1,4 @@
 .vscode
 target/
 output/
-*.openapi.yaml
 name_mapping.json

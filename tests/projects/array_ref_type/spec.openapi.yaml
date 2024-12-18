@@ -1,0 +1,22 @@
+openapi: 3.1.0
+info:
+  title: Test API
+  version: 0.0.0
+
+
+components:
+  schemas:
+    Geometry:
+      type: object
+      properties:
+        box:
+          type: string
+        id:
+          type: string
+    Compound:
+      type: object
+      properties:
+        child_geometries:
+          type: array
+          items:
+            $ref: '#/components/schemas/Geometry'

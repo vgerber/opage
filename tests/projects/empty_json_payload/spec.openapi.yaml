@@ -1,0 +1,19 @@
+openapi: 3.1.0
+info:
+  title: Test API
+  version: 0.0.0
+paths:
+  /test:
+    post:
+      operationId: emptyJson
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {}
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}

@@ -1,0 +1,54 @@
+openapi: 3.1.0
+info:
+  title: Primitive Components
+  version: 1.0.0 beta
+servers:
+  - url: /api/v1
+paths:
+  /cells/cell/devices:
+    get:
+      operationId: listDevices
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  string_value:
+                    $ref: '#/components/schemas/ComponentString'
+                  array_value:
+                    $ref: '#/components/schemas/ComponentArray'
+                title: Response Get Devices Devices Get
+        '201':
+          description: Created string
+          content:
+            application/json:
+              schema:
+                type: string
+        '202':
+          description: Accept array
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TestObject'
+
+
+components:
+  schemas:
+    ComponentInt:
+      type: integer
+    ComponentString:
+      type: string
+    ComponentArray:
+      type: array
+      items:
+        $ref: '#/components/schemas/ComponentInt'
+    TestObject:
+      type: object
+      properties:
+        name:
+          type: string
