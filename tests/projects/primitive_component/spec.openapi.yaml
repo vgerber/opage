@@ -1,0 +1,22 @@
+openapi: 3.1.0
+info:
+  title: Test API
+  version: 0.0.0
+paths:
+  /names:
+    get:
+      operationId: listNames
+      responses:
+        '200':
+          description: A Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NameList'
+components:
+  schemas:
+    NameList:
+      description: A list of names
+      type: array
+      items:
+        type: string
