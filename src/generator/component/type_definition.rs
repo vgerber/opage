@@ -44,7 +44,18 @@ pub fn get_type_from_schema(
             name_mapping,
         );
     }
-    
+
+    if object_schema.one_of.len() > 0 {
+        return get_type_from_any_type(
+            spec,
+            object_database,
+            definition_path,
+            object_schema,
+            object_variable_fallback_name,
+            name_mapping,
+        );
+    }
+
     // Fallback to string if no type is set
     get_type_from_schema_type(
         spec,
