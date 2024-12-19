@@ -116,7 +116,7 @@ pub fn generate_object(
     }
 }
 
-fn oas3_type_to_string(oas3_type: &oas3::spec::SchemaType) -> String {
+pub fn oas3_type_to_string(oas3_type: &oas3::spec::SchemaType) -> String {
     match oas3_type {
         oas3::spec::SchemaType::Boolean => String::from("Boolean"),
         oas3::spec::SchemaType::Integer => String::from("Integer"),

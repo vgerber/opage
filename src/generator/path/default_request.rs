@@ -8,8 +8,9 @@ use oas3::{
 
 use crate::{
     generator::component::{
-        object_definition::types::{
-            ModuleInfo, ObjectDatabase, PropertyDefinition, StructDefinition,
+        object_definition::{
+            oas3_type_to_string,
+            types::{ModuleInfo, ObjectDatabase, PropertyDefinition, StructDefinition},
         },
         type_definition::get_type_from_schema,
     },
@@ -148,6 +149,7 @@ pub fn generate_operation(
                     },
                     None => (),
                 },
+                TransferMediaType::TextPlain => (),
             },
             None => (),
         }
@@ -179,6 +181,15 @@ pub fn generate_operation(
                         )
                     }
                 },
+                TransferMediaType::TextPlain => {
+                    response_enum_source_code += &format!(
+                        "{}(String),\n",
+                        name_mapping.name_to_struct_name(
+                            &response_enum_definition_path,
+                            &entity.canonical_status_code
+                        )
+                    )
+                }
             },
             None => {
                 response_enum_source_code += &format!(
@@ -317,6 +328,10 @@ pub fn generate_operation(
                     None => trace!("Empty request body not added to function params"),
                 }
             }
+            TransferMediaType::TextPlain => function_parameters.push(format!(
+                "request_string: &{}",
+                oas3_type_to_string(&oas3::spec::SchemaType::String)
+            )),
         }
     }
 
@@ -409,6 +424,16 @@ pub fn generate_operation(
         request_source_code += "}\n"
     }
 
+    match request_body {
+        Some(ref request_body) => match request_body.content {
+            TransferMediaType::TextPlain => {
+                request_source_code += "let body = request_string.to_owned();\n"
+            }
+            _ => (),
+        },
+        None => (),
+    }
+
     let body_build = match request_body {
         Some(request_body) => match request_body.content {
             TransferMediaType::ApplicationJson(type_definition) => match type_definition {
@@ -423,6 +448,7 @@ pub fn generate_operation(
                 }
                 None => ".json(&serde_json::json!({}))".to_owned(),
             },
+            TransferMediaType::TextPlain => ".body(body)".to_owned(),
         },
         None => String::new(),
     };
@@ -482,6 +508,21 @@ pub fn generate_operation(
                         );
                     }
                 },
+                TransferMediaType::TextPlain => {
+                    request_source_code +=
+                        &format!("\"{}\" => match response.text().await {{\n", response_key);
+
+                    request_source_code += &format!(
+                        "Ok(response_text) => Ok({}::{}(response_text)),\n",
+                        response_enum_name,
+                        name_mapping.name_to_struct_name(
+                            &operation_definition_path,
+                            &entity.canonical_status_code
+                        ),
+                    );
+                    request_source_code += "Err(parsing_error) => Err(parsing_error)\n";
+                    request_source_code += "}"
+                }
             },
             None => {
                 request_source_code += &format!(

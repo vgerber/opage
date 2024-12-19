@@ -4,8 +4,11 @@ use super::utils::{
 };
 use crate::{
     generator::component::{
-        object_definition::types::{
-            ModuleInfo, ObjectDatabase, PropertyDefinition, StructDefinition,
+        object_definition::{
+            oas3_type_to_string,
+            types::{
+                ModuleInfo, ObjectDatabase, PropertyDefinition, StructDefinition, TypeDefinition,
+            },
         },
         type_definition::get_type_from_schema,
     },
@@ -95,6 +98,10 @@ pub fn generate_operation(
                     "Websocket with empty response body is not supported"
                 ))
             }
+        },
+        TransferMediaType::TextPlain => &TypeDefinition {
+            name: oas3_type_to_string(&oas3::spec::SchemaType::String),
+            module: None,
         },
     };
 
@@ -323,6 +330,10 @@ pub fn generate_operation(
                 }
                 None => (),
             },
+            TransferMediaType::TextPlain => function_parameters.push(format!(
+                "request_string: &{}",
+                oas3_type_to_string(&oas3::spec::SchemaType::String)
+            )),
         }
     }
 

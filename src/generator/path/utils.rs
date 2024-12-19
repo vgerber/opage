@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
-use log::{trace, warn};
+use log::{error, trace, warn};
 use oas3::{
     spec::{ObjectOrReference, ObjectSchema, RequestBody, Response},
     Spec,
@@ -25,6 +25,7 @@ pub fn is_path_parameter(path_component: &str) -> bool {
 #[derive(Clone, Debug)]
 pub enum TransferMediaType {
     ApplicationJson(Option<TypeDefinition>),
+    TextPlain
 }
 
 #[derive(Clone, Debug)]
@@ -127,6 +128,19 @@ pub fn generate_request_body(
         warn!("Only a single json object is supported");
     }
 
+    if let Some(_) = request.content.get("text/plain") {
+        return Ok(RequestEntity {
+            content: TransferMediaType::TextPlain
+        })
+    }
+
+    for content in request.content.keys() {
+        if content != "application/json" {
+            error!("Conent-Type {} is not supported", content)
+        }
+    }
+
+
     let json_data = match request.content.get("application/json") {
         Some(json_data) => json_data,
         None => return Err("No json payload found".to_string()),
@@ -196,6 +210,23 @@ pub fn generate_responses(
 
         if response.content.len() > 1 {
             warn!("Only a single json object is supported");
+        }
+
+        if let Some(_) = response.content.get("text/plain") {
+            response_entities.insert(
+                response_key.clone(),
+                ResponseEntity {
+                    canonical_status_code: canonical_status_code.to_owned(),
+                    content: Some(TransferMediaType::TextPlain),
+                },
+            );
+            continue;
+        }
+
+        for content in response.content.keys() {
+            if content != "application/json" {
+                error!("Conent-Type {} is not supported", content)
+            }
         }
 
         if response.content.len() == 0 {
