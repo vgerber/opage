@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, HashMap};
 
-use log::{error, trace, warn};
+use log::{error, trace};
 use oas3::{
-    spec::{ObjectOrReference, ObjectSchema, RequestBody, Response},
+    spec::{MediaType, ObjectOrReference, ObjectSchema, RequestBody, Response},
     Spec,
 };
 use reqwest::StatusCode;
@@ -18,6 +18,8 @@ use crate::{
     utils::name_mapping::NameMapping,
 };
 
+type ContentTypeValue = String;
+
 pub fn is_path_parameter(path_component: &str) -> bool {
     path_component.starts_with("{") && path_component.ends_with("}")
 }
@@ -25,18 +27,18 @@ pub fn is_path_parameter(path_component: &str) -> bool {
 #[derive(Clone, Debug)]
 pub enum TransferMediaType {
     ApplicationJson(Option<TypeDefinition>),
-    TextPlain
+    TextPlain,
 }
 
 #[derive(Clone, Debug)]
 pub struct ResponseEntity {
     pub canonical_status_code: String,
-    pub content: Option<TransferMediaType>,
+    pub content: HashMap<ContentTypeValue, TransferMediaType>,
 }
 
 #[derive(Clone, Debug)]
 pub struct RequestEntity {
-    pub content: TransferMediaType,
+    pub content: HashMap<ContentTypeValue, TransferMediaType>,
 }
 
 pub type ResponseEntities = HashMap<String, ResponseEntity>;
@@ -106,10 +108,108 @@ fn parse_json_data(
     }
 }
 
+fn generate_json_content(
+    spec: &Spec,
+    definition_path: &Vec<String>,
+    name_mapping: &NameMapping,
+    object_database: &mut ObjectDatabase,
+    json_media_type: &MediaType,
+    content_object_name: &str,
+) -> Result<TransferMediaType, String> {
+    let json_schema_object_or_ref = match json_media_type.schema {
+        Some(ref schema) => schema,
+        None => return Err(format!("Failed to parse response json data",)),
+    };
+
+    let json_object = match parse_json_data(
+        spec,
+        definition_path.clone(),
+        name_mapping,
+        &name_mapping.name_to_struct_name(&definition_path, content_object_name),
+        object_database,
+        json_schema_object_or_ref,
+    ) {
+        Ok(json_object) => json_object,
+        Err(err) => return Err(err),
+    };
+
+    let json_object_type_definition = match json_object {
+        Some(json_object) => json_object,
+        None => {
+            trace!(
+                "{} empty json request body object skipped",
+                content_object_name
+            );
+            return Ok(TransferMediaType::ApplicationJson(None));
+        }
+    };
+
+    Ok(TransferMediaType::ApplicationJson(Some(
+        json_object_type_definition,
+    )))
+}
+
+fn generate_content_type(
+    spec: &Spec,
+    definition_path: &Vec<String>,
+    name_mapping: &NameMapping,
+    object_database: &mut ObjectDatabase,
+    content_type: &str,
+    media_type: &MediaType,
+    content_object_name: &str,
+) -> Result<TransferMediaType, String> {
+    match content_type {
+        "text/plain" => Ok(TransferMediaType::TextPlain),
+        "application/json" => generate_json_content(
+            spec,
+            definition_path,
+            name_mapping,
+            object_database,
+            media_type,
+            &format!("{}Json", content_object_name),
+        ),
+        _ => Err(format!("Content-Type {} is not supported", content_type)),
+    }
+}
+
+fn generated_content_types_from_content_map(
+    spec: &Spec,
+    object_database: &mut ObjectDatabase,
+    definition_path: &Vec<String>,
+    name_mapping: &NameMapping,
+    content: &BTreeMap<String, MediaType>,
+    content_object_name: &str,
+) -> HashMap<ContentTypeValue, TransferMediaType> {
+    let mut content_map = HashMap::new();
+
+    for (content_type, media_type) in content {
+        match generate_content_type(
+            spec,
+            definition_path,
+            name_mapping,
+            object_database,
+            content_type,
+            media_type,
+            content_object_name,
+        ) {
+            Ok(transfer_media_type) => {
+                if content_map.contains_key(content_type) {
+                    error!("Content-Type {} is already in content map", content_type);
+                    continue;
+                }
+                content_map.insert(content_type.clone(), transfer_media_type);
+            }
+            Err(err) => error!("{} failed: {}", content_type, err),
+        }
+    }
+
+    content_map
+}
+
 pub fn generate_request_body(
     spec: &Spec,
     object_database: &mut ObjectDatabase,
-    definition_path: Vec<String>,
+    definition_path: &Vec<String>,
     name_mapping: &NameMapping,
     request_body: &ObjectOrReference<RequestBody>,
     function_name: &str,
@@ -124,65 +224,22 @@ pub fn generate_request_body(
         }
     };
 
-    if request.content.len() > 1 {
-        warn!("Only a single json object is supported");
-    }
-
-    if let Some(_) = request.content.get("text/plain") {
-        return Ok(RequestEntity {
-            content: TransferMediaType::TextPlain
-        })
-    }
-
-    for content in request.content.keys() {
-        if content != "application/json" {
-            error!("Conent-Type {} is not supported", content)
-        }
-    }
-
-
-    let json_data = match request.content.get("application/json") {
-        Some(json_data) => json_data,
-        None => return Err("No json payload found".to_string()),
-    };
-
-    let json_schema_object_or_ref = match json_data.schema {
-        Some(ref schema) => schema,
-        None => return Err(format!("Failed to parse response json data",)),
-    };
-
-    let json_object = match parse_json_data(
-        spec,
-        definition_path.clone(),
-        name_mapping,
-        &name_mapping
-            .name_to_struct_name(&definition_path, &format!("{}RequestBody", &function_name)),
-        object_database,
-        json_schema_object_or_ref,
-    ) {
-        Ok(json_object) => json_object,
-        Err(err) => return Err(err),
-    };
-
-    let json_object_type_definition = match json_object {
-        Some(json_object) => json_object,
-        None => {
-            trace!("{} empty json request body object skipped", function_name);
-            return Ok(RequestEntity {
-                content: TransferMediaType::ApplicationJson(None),
-            });
-        }
-    };
-
     Ok(RequestEntity {
-        content: TransferMediaType::ApplicationJson(Some(json_object_type_definition)),
+        content: generated_content_types_from_content_map(
+            spec,
+            object_database,
+            definition_path,
+            name_mapping,
+            &request.content,
+            &format!("{}RequestBody", function_name),
+        ),
     })
 }
 
 pub fn generate_responses(
     spec: &Spec,
     object_database: &mut ObjectDatabase,
-    definition_path: Vec<String>,
+    definition_path: &Vec<String>,
     name_mapping: &NameMapping,
     responses: &BTreeMap<String, Response>,
     function_name: &str,
@@ -208,68 +265,18 @@ pub fn generate_responses(
             }
         };
 
-        if response.content.len() > 1 {
-            warn!("Only a single json object is supported");
-        }
-
-        if let Some(_) = response.content.get("text/plain") {
-            response_entities.insert(
-                response_key.clone(),
-                ResponseEntity {
-                    canonical_status_code: canonical_status_code.to_owned(),
-                    content: Some(TransferMediaType::TextPlain),
-                },
-            );
-            continue;
-        }
-
-        for content in response.content.keys() {
-            if content != "application/json" {
-                error!("Conent-Type {} is not supported", content)
-            }
-        }
-
-        if response.content.len() == 0 {
-            response_entities.insert(
-                response_key.clone(),
-                ResponseEntity {
-                    canonical_status_code: canonical_status_code.to_owned(),
-                    content: None,
-                },
-            );
-            continue;
-        }
-
-        let json_data = match response.content.get("application/json") {
-            Some(json_data) => json_data,
-            None => continue,
-        };
-
-        let json_schema_object_or_ref = match json_data.schema {
-            Some(ref schema) => schema,
-            None => return Err(format!("Failed to parse response json data",)),
-        };
-
-        let json_object = match parse_json_data(
-            spec,
-            definition_path.clone(),
-            name_mapping,
-            &name_mapping.name_to_struct_name(
-                &definition_path,
-                &format!("{}{}", &function_name, &canonical_status_code),
-            ),
-            object_database,
-            json_schema_object_or_ref,
-        ) {
-            Ok(json_object) => json_object,
-            Err(err) => return Err(err),
-        };
-
         response_entities.insert(
             response_key.clone(),
             ResponseEntity {
                 canonical_status_code: canonical_status_code.to_owned(),
-                content: Some(TransferMediaType::ApplicationJson(json_object)),
+                content: generated_content_types_from_content_map(
+                    spec,
+                    object_database,
+                    definition_path,
+                    name_mapping,
+                    &response.content,
+                    &format!("{}{}", &function_name, &canonical_status_code),
+                ),
             },
         );
     }

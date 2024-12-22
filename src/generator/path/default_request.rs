@@ -40,7 +40,7 @@ pub fn generate_operation(
     let response_entities = match generate_responses(
         spec,
         object_database,
-        operation_definition_path.clone(),
+        &operation_definition_path,
         name_mapping,
         &operation.responses(spec),
         &function_name,
@@ -106,6 +106,15 @@ pub fn generate_operation(
 
     // Response enum
     trace!("Generating response enum");
+
+    let has_response_any_multi_content_type = response_entities
+        .iter()
+        .map(|response| response.1.content.len())
+        .filter(|content_type_length| content_type_length > &1)
+        .collect::<Vec<usize>>()
+        .len()
+        > 0;
+
     let response_enum_name = name_mapping.name_to_struct_name(
         &operation_definition_path,
         &format!("{}ResponseType", &function_name),
@@ -135,8 +144,8 @@ pub fn generate_operation(
 
     // Response types
     for (_, entity) in &response_entities {
-        match entity.content {
-            Some(ref content) => match content {
+        for (_, content) in &entity.content {
+            match content {
                 TransferMediaType::ApplicationJson(ref type_definition) => match type_definition {
                     Some(type_definition) => match type_definition.module {
                         Some(ref module_info) => {
@@ -150,57 +159,88 @@ pub fn generate_operation(
                     None => (),
                 },
                 TransferMediaType::TextPlain => (),
-            },
-            None => (),
+            }
         }
     }
 
-    let mut response_enum_source_code = format!("pub enum {} {{\n", response_enum_name);
+    let mut response_enum_source_code = String::new();
 
+    // Generated enums for multi content type responses
     for (_, entity) in &response_entities {
-        match entity.content {
-            Some(ref content) => match content {
-                TransferMediaType::ApplicationJson(ref type_definition) => match type_definition {
+        if entity.content.len() < 2 {
+            continue;
+        }
+
+        let response_code_enum_name = name_mapping.name_to_struct_name(
+            &response_enum_definition_path,
+            &format!("{}Value", entity.canonical_status_code),
+        );
+        response_enum_source_code += &format!("pub enum {} {{\n", &response_code_enum_name);
+        let mut enum_definition_path = operation_definition_path.clone();
+        enum_definition_path.push(response_code_enum_name);
+
+        for (_, transfer_media_type) in &entity.content {
+            let transfer_media_type_name =
+                media_type_enum_name(&enum_definition_path, name_mapping, transfer_media_type);
+            response_enum_source_code += &match transfer_media_type {
+                TransferMediaType::ApplicationJson(type_definiton) => match type_definiton {
                     Some(type_definition) => {
-                        response_enum_source_code += &format!(
-                            "{}({}),\n",
-                            name_mapping.name_to_struct_name(
-                                &response_enum_definition_path,
-                                &entity.canonical_status_code
-                            ),
-                            type_definition.name,
-                        )
+                        format!("{}({}),\n", transfer_media_type_name, type_definition.name)
                     }
-                    None => {
-                        response_enum_source_code += &format!(
-                            "{},\n",
-                            name_mapping.name_to_struct_name(
-                                &response_enum_definition_path,
-                                &entity.canonical_status_code
-                            ),
-                        )
-                    }
+
+                    None => format!("{},\n", transfer_media_type_name),
                 },
-                TransferMediaType::TextPlain => {
-                    response_enum_source_code += &format!(
-                        "{}(String),\n",
-                        name_mapping.name_to_struct_name(
-                            &response_enum_definition_path,
-                            &entity.canonical_status_code
-                        )
-                    )
-                }
-            },
-            None => {
-                response_enum_source_code += &format!(
-                    "{},\n",
-                    name_mapping.name_to_struct_name(
-                        &response_enum_definition_path,
-                        &entity.canonical_status_code
-                    ),
-                )
+                TransferMediaType::TextPlain => format!(
+                    "{}({}),\n",
+                    transfer_media_type_name,
+                    oas3_type_to_string(&oas3::spec::SchemaType::String)
+                ),
             }
         }
+        response_enum_source_code += "}\n\n";
+    }
+
+    response_enum_source_code += &format!("pub enum {} {{\n", response_enum_name);
+
+    for (status_code, entity) in &response_entities {
+        let response_enum_name = name_mapping.name_to_struct_name(
+            &response_enum_definition_path,
+            &format!("{}", entity.canonical_status_code),
+        );
+
+        response_enum_source_code += &match entity.content.len() {
+            0 => continue,
+            1 => match entity.content.values().next() {
+                Some(transfer_media_type) => match transfer_media_type {
+                    TransferMediaType::ApplicationJson(type_definiton) => match type_definiton {
+                        Some(type_definition) => {
+                            format!("{}({}),\n", response_enum_name, type_definition.name)
+                        }
+
+                        None => format!("{},\n", response_enum_name),
+                    },
+                    TransferMediaType::TextPlain => format!(
+                        "{}({}),\n",
+                        response_enum_name,
+                        oas3_type_to_string(&oas3::spec::SchemaType::String)
+                    ),
+                },
+                None => {
+                    return Err(format!(
+                        "Failed to retrieve first response media type of status {}",
+                        status_code
+                    ))
+                }
+            },
+            _ => format!(
+                "{}({}),\n",
+                response_enum_name,
+                name_mapping.name_to_struct_name(
+                    &response_enum_definition_path,
+                    &format!("{}Value", entity.canonical_status_code)
+                ),
+            ),
+        };
     }
 
     response_enum_source_code += "UndefinedResponse(reqwest::Response),\n";
@@ -289,7 +329,7 @@ pub fn generate_operation(
             match generate_request_body(
                 spec,
                 object_database,
-                operation_definition_path.clone(),
+                &operation_definition_path,
                 name_mapping,
                 request_body,
                 &function_name,
@@ -307,31 +347,35 @@ pub fn generate_operation(
     };
 
     if let Some(ref request_body) = request_body {
-        match request_body.content {
-            TransferMediaType::ApplicationJson(ref type_definition_opt) => {
-                match type_definition_opt {
-                    Some(ref type_definition) => {
-                        if let Some(ref module) = type_definition.module {
-                            if !module_imports.contains(module) {
-                                module_imports.push(module.clone());
+        for (_, transfer_media_type) in &request_body.content {
+            match transfer_media_type {
+                TransferMediaType::ApplicationJson(ref type_definition_opt) => {
+                    match type_definition_opt {
+                        Some(ref type_definition) => {
+                            if let Some(ref module) = type_definition.module {
+                                if !module_imports.contains(module) {
+                                    module_imports.push(module.clone());
+                                }
                             }
+                            function_parameters.push(format!(
+                                "{}: {}",
+                                name_mapping.name_to_property_name(
+                                    &operation_definition_path,
+                                    &type_definition.name
+                                ),
+                                type_definition.name
+                            ))
                         }
-                        function_parameters.push(format!(
-                            "{}: {}",
-                            name_mapping.name_to_property_name(
-                                &operation_definition_path,
-                                &type_definition.name
-                            ),
-                            type_definition.name
-                        ))
+                        None => trace!("Empty request body not added to function params"),
                     }
-                    None => trace!("Empty request body not added to function params"),
                 }
+                TransferMediaType::TextPlain => function_parameters.push(format!(
+                    "request_string: &{}",
+                    oas3_type_to_string(&oas3::spec::SchemaType::String)
+                )),
             }
-            TransferMediaType::TextPlain => function_parameters.push(format!(
-                "request_string: &{}",
-                oas3_type_to_string(&oas3::spec::SchemaType::String)
-            )),
+            // TODO add multi type support
+            break;
         }
     }
 
@@ -425,31 +469,47 @@ pub fn generate_operation(
     }
 
     match request_body {
-        Some(ref request_body) => match request_body.content {
-            TransferMediaType::TextPlain => {
-                request_source_code += "let body = request_string.to_owned();\n"
+        Some(ref request_body) => {
+            for (_, transfer_media_type) in &request_body.content {
+                match transfer_media_type {
+                    TransferMediaType::TextPlain => {
+                        request_source_code += "let body = request_string.to_owned();\n"
+                    }
+                    _ => (),
+                }
+
+                // TODO: multiple request types not supported
+                break;
             }
-            _ => (),
-        },
+        }
         None => (),
     }
 
     let body_build = match request_body {
-        Some(request_body) => match request_body.content {
-            TransferMediaType::ApplicationJson(type_definition) => match type_definition {
-                Some(type_definition) => {
-                    format!(
-                        ".json(&{})",
-                        name_mapping.name_to_property_name(
-                            &operation_definition_path,
-                            &type_definition.name
-                        )
-                    )
+        Some(request_body) => {
+            let mut body = String::new();
+            for (_, transfer_media_type) in request_body.content {
+                match transfer_media_type {
+                    TransferMediaType::ApplicationJson(type_definition) => match type_definition {
+                        Some(type_definition) => {
+                            body = format!(
+                                ".json(&{})",
+                                name_mapping.name_to_property_name(
+                                    &operation_definition_path,
+                                    &type_definition.name
+                                )
+                            )
+                        }
+                        None => body = ".json(&serde_json::json!({}))".to_owned(),
+                    },
+                    TransferMediaType::TextPlain => body = ".body(body)".to_owned(),
                 }
-                None => ".json(&serde_json::json!({}))".to_owned(),
-            },
-            TransferMediaType::TextPlain => ".body(body)".to_owned(),
-        },
+
+                // TODO: multiple request types not supported
+                break;
+            }
+            body
+        }
         None => String::new(),
     };
 
@@ -465,75 +525,183 @@ pub fn generate_operation(
     request_source_code += "        Err(err) => return Err(err),\n";
     request_source_code += "    };\n";
 
+    if has_response_any_multi_content_type {
+        request_source_code += "let content_type = match response\n";
+        request_source_code += "    .headers()\n";
+        request_source_code += "    .get(\"content-type\") {\n";
+        request_source_code += "    Some(content_type) => match content_type.to_str()\n";
+        request_source_code += "    {\n";
+        request_source_code += "        Ok(content_type) => content_type,\n";
+        request_source_code += "        Err(_) => \"text/plain\",\n";
+        request_source_code += "    },\n";
+        request_source_code += &format!(
+            "    None => return Ok({}::UndefinedResponse(response))\n",
+            response_enum_name
+        );
+        request_source_code += "    };\n\n";
+    }
+
     request_source_code += "    match response.status().as_str() {\n";
 
     for (response_key, entity) in &response_entities {
-        match entity.content {
-            Some(ref transfer_media_type) => match transfer_media_type {
-                TransferMediaType::ApplicationJson(ref type_definition) => match type_definition {
-                    Some(type_definition) => {
-                        request_source_code += &format!(
-                            "\"{}\" => match response.json::<{}>().await {{\n",
-                            response_key, type_definition.name
-                        );
+        if entity.content.len() > 1 {
+            // Multi content type response
+            request_source_code += &format!("\"{}\" => match content_type {{\n", response_key);
+
+            for (content_type, transfer_media_type) in &entity.content {
+                match transfer_media_type {
+                    TransferMediaType::ApplicationJson(ref type_definition) => {
+                        match type_definition {
+                            Some(type_definition) => {
+                                request_source_code += &format!(
+                                    "\"{}\" => match response.json::<{}>().await {{\n",
+                                    content_type, type_definition.name
+                                );
+
+                                request_source_code += &format!(
+                                    "Ok({}) => Ok({}::{}({}::{}({}))),\n",
+                                    name_mapping.name_to_property_name(
+                                        &operation_definition_path,
+                                        &type_definition.name
+                                    ),
+                                    response_enum_name,
+                                    name_mapping.name_to_struct_name(
+                                        &operation_definition_path,
+                                        &entity.canonical_status_code
+                                    ),
+                                    name_mapping.name_to_struct_name(
+                                        &response_enum_definition_path,
+                                        &format!("{}Value", &entity.canonical_status_code)
+                                    ),
+                                    media_type_enum_name(
+                                        &response_enum_definition_path,
+                                        &name_mapping,
+                                        &TransferMediaType::ApplicationJson(None)
+                                    ),
+                                    name_mapping.name_to_property_name(
+                                        &operation_definition_path,
+                                        &type_definition.name
+                                    )
+                                );
+                                request_source_code += "Err(parsing_error) => Err(parsing_error)\n";
+                                request_source_code += "}\n"
+                            }
+                            None => {
+                                request_source_code += &format!(
+                                    "\"{}\" => Ok({}::{}({}::{})),\n",
+                                    content_type,
+                                    response_enum_name,
+                                    name_mapping.name_to_struct_name(
+                                        &operation_definition_path,
+                                        &entity.canonical_status_code
+                                    ),
+                                    name_mapping.name_to_struct_name(
+                                        &response_enum_definition_path,
+                                        &format!("{}Value", &entity.canonical_status_code)
+                                    ),
+                                    media_type_enum_name(
+                                        &response_enum_definition_path,
+                                        &name_mapping,
+                                        &TransferMediaType::ApplicationJson(None)
+                                    )
+                                );
+                            }
+                        }
+                    }
+                    TransferMediaType::TextPlain => {
+                        request_source_code +=
+                            &format!("\"{}\" => match response.text().await {{\n", content_type);
 
                         request_source_code += &format!(
-                            "Ok({}) => Ok({}::{}({})),\n",
-                            name_mapping.name_to_property_name(
-                                &operation_definition_path,
-                                &type_definition.name
-                            ),
+                            "Ok(response_text) => Ok({}::{}({}::{}(response_text))),\n",
                             response_enum_name,
                             name_mapping.name_to_struct_name(
                                 &operation_definition_path,
                                 &entity.canonical_status_code
                             ),
-                            name_mapping.name_to_property_name(
-                                &operation_definition_path,
-                                &type_definition.name
+                            name_mapping.name_to_struct_name(
+                                &response_enum_definition_path,
+                                &format!("{}Value", &entity.canonical_status_code)
+                            ),
+                            media_type_enum_name(
+                                &response_enum_definition_path,
+                                &name_mapping,
+                                &TransferMediaType::TextPlain
                             )
                         );
                         request_source_code += "Err(parsing_error) => Err(parsing_error)\n";
-                        request_source_code += "}"
+                        request_source_code += "}\n"
                     }
-                    None => {
+                }
+            }
+
+            request_source_code += &format!(
+                "_ => Ok({}::UndefinedResponse(response))\n",
+                response_enum_name
+            );
+
+            // Close content_type match
+            request_source_code += "}\n"
+        } else {
+            // Single content type response
+            for (_, transfer_media_type) in &entity.content {
+                match transfer_media_type {
+                    TransferMediaType::ApplicationJson(ref type_definition) => {
+                        match type_definition {
+                            Some(type_definition) => {
+                                request_source_code += &format!(
+                                    "\"{}\" => match response.json::<{}>().await {{\n",
+                                    response_key, type_definition.name
+                                );
+
+                                request_source_code += &format!(
+                                    "Ok({}) => Ok({}::{}({})),\n",
+                                    name_mapping.name_to_property_name(
+                                        &operation_definition_path,
+                                        &type_definition.name
+                                    ),
+                                    response_enum_name,
+                                    name_mapping.name_to_struct_name(
+                                        &operation_definition_path,
+                                        &entity.canonical_status_code
+                                    ),
+                                    name_mapping.name_to_property_name(
+                                        &operation_definition_path,
+                                        &type_definition.name
+                                    )
+                                );
+                                request_source_code += "Err(parsing_error) => Err(parsing_error)\n";
+                                request_source_code += "}\n"
+                            }
+                            None => {
+                                request_source_code += &format!(
+                                    "\"{}\" => Ok({}::{}),\n",
+                                    response_key,
+                                    response_enum_name,
+                                    name_mapping.name_to_struct_name(
+                                        &operation_definition_path,
+                                        &entity.canonical_status_code
+                                    )
+                                );
+                            }
+                        }
+                    }
+                    TransferMediaType::TextPlain => {
+                        request_source_code +=
+                            &format!("\"{}\" => match response.text().await {{\n", response_key);
+
                         request_source_code += &format!(
-                            "\"{}\" => Ok({}::{}),\n",
-                            response_key,
+                            "Ok(response_text) => Ok({}::{}(response_text)),\n",
                             response_enum_name,
                             name_mapping.name_to_struct_name(
                                 &operation_definition_path,
                                 &entity.canonical_status_code
-                            ),
+                            )
                         );
+                        request_source_code += "Err(parsing_error) => Err(parsing_error)\n";
+                        request_source_code += "}\n"
                     }
-                },
-                TransferMediaType::TextPlain => {
-                    request_source_code +=
-                        &format!("\"{}\" => match response.text().await {{\n", response_key);
-
-                    request_source_code += &format!(
-                        "Ok(response_text) => Ok({}::{}(response_text)),\n",
-                        response_enum_name,
-                        name_mapping.name_to_struct_name(
-                            &operation_definition_path,
-                            &entity.canonical_status_code
-                        ),
-                    );
-                    request_source_code += "Err(parsing_error) => Err(parsing_error)\n";
-                    request_source_code += "}"
                 }
-            },
-            None => {
-                request_source_code += &format!(
-                    "\"{}\" => Ok({}::{}),\n",
-                    response_key,
-                    response_enum_name,
-                    name_mapping.name_to_struct_name(
-                        &operation_definition_path,
-                        &entity.canonical_status_code
-                    ),
-                )
             }
         }
     }
@@ -543,8 +711,22 @@ pub fn generate_operation(
         response_enum_name
     );
 
-    request_source_code += "}";
+    // Close match status code
+    request_source_code += "}\n";
 
-    request_source_code += "}";
+    // function
+    request_source_code += "}\n";
     Ok(request_source_code)
+}
+
+fn media_type_enum_name(
+    definition_path: &Vec<String>,
+    name_mapping: &NameMapping,
+    transfer_media_type: &TransferMediaType,
+) -> String {
+    let name = match transfer_media_type {
+        TransferMediaType::ApplicationJson(_) => "Json",
+        TransferMediaType::TextPlain => "Text",
+    };
+    name_mapping.name_to_struct_name(definition_path, name)
 }

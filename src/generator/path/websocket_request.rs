@@ -14,6 +14,7 @@ use crate::{
     },
     utils::name_mapping::NameMapping,
 };
+use log::error;
 use oas3::{
     spec::{FromRef, ObjectOrReference, ObjectSchema, Operation, ParameterIn},
     Spec,
@@ -73,7 +74,7 @@ pub fn generate_operation(
     let response_entities = match generate_responses(
         spec,
         object_database,
-        operation_definition_path.clone(),
+        &operation_definition_path,
         name_mapping,
         &operation.responses(spec),
         &function_name,
@@ -83,10 +84,18 @@ pub fn generate_operation(
     };
 
     let socket_transferred_media_type = match response_entities.get("200") {
-        Some(ok_response) => match ok_response.content {
-            Some(ref transfer_data_type) => transfer_data_type,
-            None => return Err("Transfer type missing".to_owned()),
-        },
+        Some(ok_response) => {
+            let mut socket_transferred_media_type = None;
+            for (_, transfer_media_type) in &ok_response.content {
+                socket_transferred_media_type = Some(transfer_media_type);
+                break;
+            }
+
+            match socket_transferred_media_type {
+                Some(socket_transferred_media_type) => socket_transferred_media_type,
+                None => return Err("Transfer type missing".to_owned()),
+            }
+        }
         None => return Err("No OK response found".to_owned()),
     };
 
@@ -293,7 +302,7 @@ pub fn generate_operation(
             match generate_request_body(
                 spec,
                 object_database,
-                operation_definition_path.clone(),
+                &operation_definition_path,
                 name_mapping,
                 request_body,
                 &function_name,
@@ -311,29 +320,36 @@ pub fn generate_operation(
     };
 
     if let Some(ref request_body) = request_body {
-        match request_body.content {
-            TransferMediaType::ApplicationJson(ref type_definition) => match type_definition {
-                Some(ref type_definition) => {
-                    if let Some(ref module) = type_definition.module {
-                        if !module_imports.contains(module) {
-                            module_imports.push(module.clone());
+        if request_body.content.len() > 1 {
+            error!("RequestBody with multiple content types is not supported")
+        }
+
+        for (_, transfer_media_type) in &request_body.content {
+            match transfer_media_type {
+                TransferMediaType::ApplicationJson(ref type_definition) => match type_definition {
+                    Some(ref type_definition) => {
+                        if let Some(ref module) = type_definition.module {
+                            if !module_imports.contains(module) {
+                                module_imports.push(module.clone());
+                            }
                         }
+                        function_parameters.push(format!(
+                            "{}: {}",
+                            name_mapping.name_to_property_name(
+                                &operation_definition_path,
+                                &type_definition.name
+                            ),
+                            type_definition.name
+                        ))
                     }
-                    function_parameters.push(format!(
-                        "{}: {}",
-                        name_mapping.name_to_property_name(
-                            &operation_definition_path,
-                            &type_definition.name
-                        ),
-                        type_definition.name
-                    ))
-                }
-                None => (),
-            },
-            TransferMediaType::TextPlain => function_parameters.push(format!(
-                "request_string: &{}",
-                oas3_type_to_string(&oas3::spec::SchemaType::String)
-            )),
+                    None => (),
+                },
+                TransferMediaType::TextPlain => function_parameters.push(format!(
+                    "request_string: &{}",
+                    oas3_type_to_string(&oas3::spec::SchemaType::String)
+                )),
+            }
+            break;
         }
     }
 

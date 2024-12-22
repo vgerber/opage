@@ -1,0 +1,55 @@
+openapi: 3.1.0
+info:
+  title: Test API
+  version: 0.0.0
+paths:
+  /default:
+    post:
+      operationId: defaultSingleContentType
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {}
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                properties:
+                  name:
+                    type: string
+                type: object
+  /test:
+    post:
+      operationId: testCaseMultiContentType
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {}
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+            text/plain:
+              schema: {}
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                properties:
+                  name:
+                    type: string
+                type: object
+            text/plain:
+              schema: {}
