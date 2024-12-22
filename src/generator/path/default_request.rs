@@ -541,12 +541,12 @@ pub fn generate_operation(
         request_source_code += "    };\n\n";
     }
 
-    request_source_code += "    match response.status().as_str() {\n";
+    request_source_code += "    match response.status().as_u16() {\n";
 
     for (response_key, entity) in &response_entities {
         if entity.content.len() > 1 {
             // Multi content type response
-            request_source_code += &format!("\"{}\" => match content_type {{\n", response_key);
+            request_source_code += &format!("{} => match content_type {{\n", response_key);
 
             for (content_type, transfer_media_type) in &entity.content {
                 match transfer_media_type {
@@ -650,7 +650,7 @@ pub fn generate_operation(
                         match type_definition {
                             Some(type_definition) => {
                                 request_source_code += &format!(
-                                    "\"{}\" => match response.json::<{}>().await {{\n",
+                                    "{} => match response.json::<{}>().await {{\n",
                                     response_key, type_definition.name
                                 );
 
@@ -675,7 +675,7 @@ pub fn generate_operation(
                             }
                             None => {
                                 request_source_code += &format!(
-                                    "\"{}\" => Ok({}::{}),\n",
+                                    "{} => Ok({}::{}),\n",
                                     response_key,
                                     response_enum_name,
                                     name_mapping.name_to_struct_name(
@@ -688,7 +688,7 @@ pub fn generate_operation(
                     }
                     TransferMediaType::TextPlain => {
                         request_source_code +=
-                            &format!("\"{}\" => match response.text().await {{\n", response_key);
+                            &format!("{} => match response.text().await {{\n", response_key);
 
                         request_source_code += &format!(
                             "Ok(response_text) => Ok({}::{}(response_text)),\n",
