@@ -346,36 +346,45 @@ pub fn generate_operation(
         None => None,
     };
 
-    if let Some(ref request_body) = request_body {
-        for (_, transfer_media_type) in &request_body.content {
-            match transfer_media_type {
-                TransferMediaType::ApplicationJson(ref type_definition_opt) => {
-                    match type_definition_opt {
-                        Some(ref type_definition) => {
-                            if let Some(ref module) = type_definition.module {
-                                if !module_imports.contains(module) {
-                                    module_imports.push(module.clone());
+    let multi_content_request_body = match request_body {
+        Some(ref request_body) => request_body.content.len() > 1,
+        None => false,
+    };
+
+    if multi_content_request_body {
+        function_parameters.push("request_builder: RequestBuilder".to_owned())
+    } else {
+        if let Some(ref request_body) = request_body {
+            for (_, transfer_media_type) in &request_body.content {
+                match transfer_media_type {
+                    TransferMediaType::ApplicationJson(ref type_definition_opt) => {
+                        match type_definition_opt {
+                            Some(ref type_definition) => {
+                                if let Some(ref module) = type_definition.module {
+                                    if !module_imports.contains(module) {
+                                        module_imports.push(module.clone());
+                                    }
                                 }
+                                function_parameters.push(format!(
+                                    "{}: {}",
+                                    name_mapping.name_to_property_name(
+                                        &operation_definition_path,
+                                        &type_definition.name
+                                    ),
+                                    type_definition.name
+                                ))
                             }
-                            function_parameters.push(format!(
-                                "{}: {}",
-                                name_mapping.name_to_property_name(
-                                    &operation_definition_path,
-                                    &type_definition.name
-                                ),
-                                type_definition.name
-                            ))
+                            None => trace!("Empty request body not added to function params"),
                         }
-                        None => trace!("Empty request body not added to function params"),
                     }
+                    TransferMediaType::TextPlain => function_parameters.push(format!(
+                        "request_string: &{}",
+                        oas3_type_to_string(&oas3::spec::SchemaType::String)
+                    )),
                 }
-                TransferMediaType::TextPlain => function_parameters.push(format!(
-                    "request_string: &{}",
-                    oas3_type_to_string(&oas3::spec::SchemaType::String)
-                )),
+                // TODO add multi type support
+                break;
             }
-            // TODO add multi type support
-            break;
         }
     }
 
