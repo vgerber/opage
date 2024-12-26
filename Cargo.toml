@@ -13,8 +13,19 @@ serde_json = "1.0.133"
 oas3 = { path = "oas3-rs/crates/oas3" }
 
 [workspace]
-members = [
-    "oas3-rs/crates/oas3"
+members = ["oas3-rs/crates/oas3"]
+exclude = [
+    "tests/projects/array_ref_type/output",
+    "tests/projects/const_types/output",
+    "tests/projects/empty_json_payload/output",
+    "tests/projects/empty_spec/output",
+    "tests/projects/inline_object_same_name/output",
+    "tests/projects/multi_content_types/output",
+    "tests/projects/primitive_component/output",
+    "tests/projects/primitive_components_refs/output",
+    "tests/projects/property_ref_type/output",
+    "tests/projects/rust_keyword_component/output",
+    "tests/projects/wandelbots/output",
 ]
 
 [workspace.package]

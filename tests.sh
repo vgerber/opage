@@ -8,7 +8,7 @@ for dir in tests/projects/*;
 do
     
     echo "### Start test ${dir}"
-    rm -rf $dir/output
+    #rm -rf $dir/output
     mkdir -p $dir/output
     cargo run -- -s $dir/spec.openapi.yaml -o $dir/output -c $dir/config.json > $dir/output/generate.log
     cargo build --manifest-path=$dir/output/Cargo.toml

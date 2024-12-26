@@ -10,7 +10,11 @@ paths:
         required: true
         content:
           application/json:
-            schema: {}
+            schema:
+              properties:
+                  name:
+                    type: string
+              type: object
       responses:
         '200':
           description: Successful Response
@@ -26,7 +30,7 @@ paths:
                   name:
                     type: string
                 type: object
-  /test:
+  /test/multi-content-response:
     post:
       operationId: testCaseMultiContentType
       requestBody:
@@ -41,6 +45,68 @@ paths:
             application/json:
               schema: {}
             text/plain:
+              schema: {}
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                properties:
+                  name:
+                    type: string
+                type: object
+            text/plain:
+              schema: {}
+  /test/{param1}/multi-content-request/{param2}:
+    post:
+      operationId: testCaseMultiContentTypeRequest
+      parameters:
+        - name: response_rate
+          in: query
+          schema:
+            type: integer
+            format: uint32
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              properties:
+                name:
+                  type: string
+          text/plain:
+              schema: {}
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            text/plain:
+              schema: {}
+  /all/{param1}/in/{param2}/one:
+    post:
+      operationId: allInOneTest
+      parameters:
+        - name: response_rate
+          in: query
+          schema:
+            type: integer
+            format: uint32
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              properties:
+                name:
+                  type: string
+              type: object
+          text/plain:
+              schema: {}
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
               schema: {}
         '201':
           description: Successful Response

@@ -19,7 +19,7 @@ use crate::{
 
 use super::utils::{
     generate_request_body, generate_responses, is_path_parameter, use_module_to_string,
-    TransferMediaType,
+    RequestEntity, TransferMediaType,
 };
 
 pub fn generate_operation(
@@ -50,59 +50,15 @@ pub fn generate_operation(
     };
 
     // Path parameters
-    trace!("Generating path parameters");
-    let path_parameters_struct_name = name_mapping.name_to_struct_name(
+    let path_parameter_code = match generate_path_parameter_code(
         &operation_definition_path,
-        &format!("{}PathParameters", function_name),
-    );
-
-    let mut path_parameters_definition_path = operation_definition_path.clone();
-    path_parameters_definition_path.push(path_parameters_struct_name.clone());
-
-    let path_parameters_ordered = path
-        .split("/")
-        .filter(|&path_component| is_path_parameter(&path_component))
-        .map(|path_component| path_component.replace("{", "").replace("}", ""))
-        .map(|path_component| PropertyDefinition {
-            module: None,
-            name: name_mapping
-                .name_to_property_name(&path_parameters_definition_path, &path_component),
-            real_name: path_component,
-            required: true,
-            type_name: "&str".to_owned(),
-        })
-        .collect::<Vec<PropertyDefinition>>();
-    let path_struct_definition = StructDefinition {
-        name: path_parameters_struct_name,
-        used_modules: vec![],
-        local_objects: HashMap::new(),
-        properties: path_parameters_ordered
-            .iter()
-            .map(|path_component| {
-                (
-                    path_component.name.clone(),
-                    PropertyDefinition {
-                        module: None,
-                        name: path_component.name.clone(),
-                        real_name: path_component.real_name.clone(),
-                        required: path_component.required,
-                        type_name: "String".to_owned(),
-                    },
-                )
-            })
-            .collect::<HashMap<String, PropertyDefinition>>(),
+        name_mapping,
+        &function_name,
+        path,
+    ) {
+        Ok(path_parameter_code) => path_parameter_code,
+        Err(err) => return Err(err),
     };
-
-    let path_format_string = path
-        .split("/")
-        .map(|path_component| {
-            return match is_path_parameter(path_component) {
-                true => String::from("{}"),
-                _ => path_component.to_owned(),
-            };
-        })
-        .collect::<Vec<String>>()
-        .join("/");
 
     // Response enum
     trace!("Generating response enum");
@@ -123,19 +79,6 @@ pub fn generate_operation(
     response_enum_definition_path.push(response_enum_name.clone());
 
     let mut request_source_code = String::new();
-
-    let mut function_parameters = vec![];
-
-    if !path_struct_definition.properties.is_empty() {
-        function_parameters.push(format!(
-            "{}: &{}",
-            name_mapping.name_to_property_name(
-                &response_enum_definition_path,
-                &path_struct_definition.name
-            ),
-            path_struct_definition.name
-        ));
-    }
 
     let mut module_imports = vec![ModuleInfo {
         name: "reqwest".to_owned(),
@@ -247,80 +190,17 @@ pub fn generate_operation(
     response_enum_source_code += "}\n";
 
     // Query params
-    trace!("Generating query params");
-    let mut query_struct = StructDefinition {
-        name: name_mapping.name_to_struct_name(
-            &operation_definition_path,
-            &format!("{}QueryParameters", &function_name),
-        ),
-        properties: HashMap::new(),
-        used_modules: vec![],
-        local_objects: HashMap::new(),
+    let query_parameter_code = match generate_query_parameter_code(
+        spec,
+        operation,
+        &operation_definition_path,
+        name_mapping,
+        object_database,
+        &function_name,
+    ) {
+        Ok(query_parameter_code) => query_parameter_code,
+        Err(err) => return Err(err),
     };
-
-    let mut query_parameters_definition_path = operation_definition_path.clone();
-    query_parameters_definition_path.push(query_struct.name.clone());
-
-    for parameter_ref in &operation.parameters {
-        let parameter = match parameter_ref.resolve(spec) {
-            Ok(parameter) => parameter,
-            Err(err) => return Err(format!("Failed to resolve parameter {}", err.to_string())),
-        };
-        if parameter.location != ParameterIn::Query {
-            continue;
-        }
-
-        let parameter_type = match parameter.schema {
-            Some(schema) => match schema.resolve(spec) {
-                Ok(object_schema) => get_type_from_schema(
-                    spec,
-                    object_database,
-                    query_parameters_definition_path.clone(),
-                    &object_schema,
-                    Some(&parameter.name),
-                    name_mapping,
-                ),
-                Err(err) => {
-                    return Err(format!(
-                        "Failed to resolve parameter {} {}",
-                        parameter.name,
-                        err.to_string()
-                    ))
-                }
-            },
-            None => return Err(format!("Parameter {} has no schema", parameter.name)),
-        };
-
-        let _ = match parameter_type {
-            Ok(parameter_type) => query_struct.properties.insert(
-                name_mapping
-                    .name_to_property_name(&query_parameters_definition_path, &parameter.name),
-                PropertyDefinition {
-                    name: name_mapping
-                        .name_to_property_name(&query_parameters_definition_path, &parameter.name),
-                    module: parameter_type.module,
-                    real_name: parameter.name,
-                    required: match parameter.required {
-                        Some(required) => required,
-                        None => false,
-                    },
-                    type_name: parameter_type.name,
-                },
-            ),
-            Err(err) => return Err(err),
-        };
-    }
-
-    let mut query_struct_source_code = String::new();
-    if query_struct.properties.len() > 0 {
-        function_parameters.push(format!(
-            "{}: &{}",
-            name_mapping.name_to_property_name(&operation_definition_path, &query_struct.name),
-            query_struct.name
-        ));
-        query_struct_source_code += &query_struct.to_string(false);
-        query_struct_source_code += "\n\n";
-    }
 
     // Request Body
     trace!("Generating request body");
@@ -346,36 +226,72 @@ pub fn generate_operation(
         None => None,
     };
 
-    if let Some(ref request_body) = request_body {
-        for (_, transfer_media_type) in &request_body.content {
-            match transfer_media_type {
-                TransferMediaType::ApplicationJson(ref type_definition_opt) => {
-                    match type_definition_opt {
-                        Some(ref type_definition) => {
-                            if let Some(ref module) = type_definition.module {
-                                if !module_imports.contains(module) {
-                                    module_imports.push(module.clone());
+    let request_body_content_types_count = match request_body {
+        Some(ref request_body) => request_body.content.len(),
+        None => 0,
+    };
+
+    let multi_content_request_body = request_body_content_types_count > 1;
+
+    let multi_request_type_source_code = match request_body {
+        Some(ref request_entity) => match generate_multi_request_type_functions(
+            &operation_definition_path,
+            name_mapping,
+            &function_name,
+            &path_parameter_code,
+            &mut module_imports,
+            &query_parameter_code,
+            &response_enum_name,
+            method,
+            request_entity,
+        ) {
+            Some(request_code) => request_code,
+            None => String::new(),
+        },
+
+        None => String::new(),
+    };
+
+    let mut function_parameters = match multi_content_request_body {
+        true => vec!["request_builder: reqwest::RequestBuilder".to_owned()],
+        false => vec![
+            "client: &reqwest::Client".to_owned(),
+            "server: &str".to_owned(),
+        ],
+    };
+
+    let request_content_variable_name = match multi_content_request_body {
+        true => String::new(),
+        false => name_mapping.name_to_property_name(&operation_definition_path, "content"),
+    };
+
+    if !multi_content_request_body {
+        if let Some(request_body) = &request_body {
+            for (_, transfer_media_type) in &request_body.content {
+                match transfer_media_type {
+                    TransferMediaType::ApplicationJson(ref type_definition_opt) => {
+                        match type_definition_opt {
+                            Some(ref type_definition) => {
+                                if let Some(ref module) = type_definition.module {
+                                    if !module_imports.contains(module) {
+                                        module_imports.push(module.clone());
+                                    }
                                 }
+                                function_parameters.push(format!(
+                                    "{}: {}",
+                                    request_content_variable_name, type_definition.name
+                                ))
                             }
-                            function_parameters.push(format!(
-                                "{}: {}",
-                                name_mapping.name_to_property_name(
-                                    &operation_definition_path,
-                                    &type_definition.name
-                                ),
-                                type_definition.name
-                            ))
+                            None => trace!("Empty request body not added to function params"),
                         }
-                        None => trace!("Empty request body not added to function params"),
                     }
+                    TransferMediaType::TextPlain => function_parameters.push(format!(
+                        "{}: &{}",
+                        request_content_variable_name,
+                        oas3_type_to_string(&oas3::spec::SchemaType::String)
+                    )),
                 }
-                TransferMediaType::TextPlain => function_parameters.push(format!(
-                    "request_string: &{}",
-                    oas3_type_to_string(&oas3::spec::SchemaType::String)
-                )),
             }
-            // TODO add multi type support
-            break;
         }
     }
 
@@ -388,101 +304,73 @@ pub fn generate_operation(
     request_source_code += "\n\n";
     request_source_code += &response_enum_source_code;
     request_source_code += "\n";
-    if !path_struct_definition.properties.is_empty() {
-        request_source_code += &path_struct_definition.to_string(false);
+    if !path_parameter_code.parameters_struct.properties.is_empty() {
+        request_source_code += &path_parameter_code.parameters_struct.to_string(false);
         request_source_code += "\n";
     }
 
-    request_source_code += &query_struct_source_code;
+    if query_parameter_code.query_struct.properties.len() > 0 {
+        request_source_code += &query_parameter_code.query_struct.to_string(false);
+    }
+
+    request_source_code += "\n";
+
+    request_source_code += &multi_request_type_source_code;
+
+    request_source_code += "\n";
+
+    if !multi_content_request_body && path_parameter_code.parameters_struct.properties.len() > 0 {
+        function_parameters.push(format!(
+            "{}: &{}",
+            path_parameter_code.parameters_struct_variable_name,
+            path_parameter_code.parameters_struct.name
+        ));
+    }
+
+    let query_struct = &query_parameter_code.query_struct;
+    if query_struct.properties.len() > 0 {
+        function_parameters.push(format!(
+            "{}: &{}",
+            query_parameter_code.query_struct_variable_name, query_struct.name
+        ));
+    }
+
+    let function_visibility = match multi_content_request_body {
+        true => "",
+        false => "pub",
+    };
 
     // Function signature
     request_source_code += &format!(
-        "pub async fn {}(client: &reqwest::Client, server: &str, {}) -> Result<{}, reqwest::Error> {{\n",
+        "{} async fn {}({}) -> Result<{}, reqwest::Error> {{\n",
+        function_visibility,
         function_name,
         function_parameters.join(", "),
         response_enum_name,
     );
 
-    request_source_code += &format!(
-        "let {} query_parameters: Vec<(&str, String)> = vec![{}];\n",
-        match query_struct
-            .properties
-            .iter()
-            .filter(|(_, property)| !property.required || property.type_name.starts_with("Vec<"))
-            .collect::<Vec<(&String, &PropertyDefinition)>>()
-            .len()
-        {
-            0 => "",
-            _ => "mut",
-        },
-        query_struct
-            .properties
-            .iter()
-            .filter(|(_, property)| property.required && !property.type_name.starts_with("Vec<"))
-            .map(|(_, property)| format!(
-                "(\"{}\",{}.{}.to_string())",
-                property.real_name,
-                name_mapping.name_to_property_name(&operation_definition_path, &query_struct.name),
-                property.name
-            ))
-            .collect::<Vec<String>>()
-            .join(",")
-    );
+    request_source_code += &query_parameter_code.unroll_query_parameters_code;
 
-    query_struct
-        .properties
-        .values()
-        .filter(|&property| property.required && property.type_name.starts_with("Vec<"))
-        .for_each(|vector_property|
-    {
-        request_source_code += &format!(
-                "{}.{}.iter().for_each(|query_parameter_item| query_parameters.push((\"{}\", query_parameter_item.to_string())));\n",
-                name_mapping.name_to_property_name(&operation_definition_path, &query_struct.name),
-                name_mapping.name_to_property_name(&operation_definition_path, &vector_property.name),
-                vector_property.real_name
-            );
-    });
-
-    for optional_property in query_struct
-        .properties
-        .values()
-        .filter(|&property| !property.required)
-        .collect::<Vec<&PropertyDefinition>>()
-    {
-        request_source_code += &format!(
-            "if let Some(ref query_parameter) = {}.{} {{\n",
-            name_mapping.name_to_property_name(&operation_definition_path, &query_struct.name),
-            optional_property.name
-        );
-        if optional_property.type_name.starts_with("Vec<") {
-            request_source_code += &format!(
-                "query_parameter.iter().for_each(|query_parameter_item| query_parameters.push((\"{}\", query_parameter_item.to_string())));\n",
-                optional_property.real_name
-            );
-        } else {
-            request_source_code += &format!(
-                "query_parameters.push((\"{}\", query_parameter.to_string()));\n",
-                optional_property.real_name
-            );
-        }
-        request_source_code += "}\n"
-    }
-
-    match request_body {
-        Some(ref request_body) => {
-            for (_, transfer_media_type) in &request_body.content {
-                match transfer_media_type {
-                    TransferMediaType::TextPlain => {
-                        request_source_code += "let body = request_string.to_owned();\n"
+    if !multi_content_request_body {
+        match request_body {
+            Some(ref request_body) => {
+                for (_, transfer_media_type) in &request_body.content {
+                    match transfer_media_type {
+                        TransferMediaType::TextPlain => {
+                            request_source_code += &format!(
+                                "let body = {}.to_owned();\n",
+                                request_content_variable_name
+                            )
+                        }
+                        _ => (),
                     }
-                    _ => (),
-                }
 
-                // TODO: multiple request types not supported
-                break;
+                    // TODO: multiple request types not supported
+                    break;
+                }
             }
+            None => (),
         }
-        None => (),
     }
 
     let body_build = match request_body {
@@ -491,15 +379,7 @@ pub fn generate_operation(
             for (_, transfer_media_type) in request_body.content {
                 match transfer_media_type {
                     TransferMediaType::ApplicationJson(type_definition) => match type_definition {
-                        Some(type_definition) => {
-                            body = format!(
-                                ".json(&{})",
-                                name_mapping.name_to_property_name(
-                                    &operation_definition_path,
-                                    &type_definition.name
-                                )
-                            )
-                        }
+                        Some(_) => body = format!(".json(&{})", request_content_variable_name),
                         None => body = ".json(&serde_json::json!({}))".to_owned(),
                     },
                     TransferMediaType::TextPlain => body = ".body(body)".to_owned(),
@@ -513,13 +393,19 @@ pub fn generate_operation(
         None => String::new(),
     };
 
-    request_source_code += &format!(
-        "    let response = match client.{}(format!(\"{{server}}{}\", {})).query(&query_parameters){}.send().await\n",
-        method.as_str().to_lowercase(),
-        path_format_string,
-        path_parameters_ordered.iter().map(|parameter| format!("{}.{}", name_mapping.name_to_property_name(&operation_definition_path, &path_struct_definition.name), name_mapping.name_to_property_name(&operation_definition_path, &parameter.name))).collect::<Vec<String>>().join(","),
-        body_build
-    );
+    match request_body_content_types_count {
+        0 | 1 => request_source_code += &format!(
+            "    let response = match client.{}(format!(\"{{server}}{}\", {})).query(&request_query_parameters){}.send().await\n",
+            method.as_str().to_lowercase(),
+            path_parameter_code.path_format_string,
+            path_parameter_code.parameters_struct.properties.iter().map(|(_, parameter)| format!("{}.{}", &path_parameter_code.parameters_struct_variable_name, name_mapping.name_to_property_name(&operation_definition_path, &parameter.name))).collect::<Vec<String>>().join(","),
+            body_build
+        ),
+        _ => request_source_code += &format!(
+            "    let response = match request_builder.query(&request_query_parameters).send().await\n",
+        )
+    };
+
     request_source_code += "    {\n";
     request_source_code += "        Ok(response) => response,\n";
     request_source_code += "        Err(err) => return Err(err),\n";
@@ -729,4 +615,366 @@ fn media_type_enum_name(
         TransferMediaType::TextPlain => "Text",
     };
     name_mapping.name_to_struct_name(definition_path, name)
+}
+
+struct PathParameterCode {
+    pub parameters_struct_variable_name: String,
+    pub parameters_struct: StructDefinition,
+    pub path_format_string: String,
+}
+
+fn generate_path_parameter_code(
+    definition_path: &Vec<String>,
+    name_mapping: &NameMapping,
+    function_name: &str,
+    path: &str,
+) -> Result<PathParameterCode, String> {
+    trace!("Generating path parameters");
+    let path_parameters_struct_name = name_mapping.name_to_struct_name(
+        &definition_path,
+        &format!("{}PathParameters", function_name),
+    );
+
+    let mut path_parameters_definition_path = definition_path.clone();
+    path_parameters_definition_path.push(path_parameters_struct_name.clone());
+
+    let path_parameters_ordered = path
+        .split("/")
+        .filter(|&path_component| is_path_parameter(&path_component))
+        .map(|path_component| path_component.replace("{", "").replace("}", ""))
+        .map(|path_component| PropertyDefinition {
+            module: None,
+            name: name_mapping
+                .name_to_property_name(&path_parameters_definition_path, &path_component),
+            real_name: path_component,
+            required: true,
+            type_name: "&str".to_owned(),
+        })
+        .collect::<Vec<PropertyDefinition>>();
+    let path_struct_definition = StructDefinition {
+        name: path_parameters_struct_name,
+        used_modules: vec![],
+        local_objects: HashMap::new(),
+        properties: path_parameters_ordered
+            .iter()
+            .map(|path_component| {
+                (
+                    path_component.name.clone(),
+                    PropertyDefinition {
+                        module: None,
+                        name: path_component.name.clone(),
+                        real_name: path_component.real_name.clone(),
+                        required: path_component.required,
+                        type_name: "String".to_owned(),
+                    },
+                )
+            })
+            .collect::<HashMap<String, PropertyDefinition>>(),
+    };
+
+    let path_format_string = path
+        .split("/")
+        .map(|path_component| {
+            return match is_path_parameter(path_component) {
+                true => String::from("{}"),
+                _ => path_component.to_owned(),
+            };
+        })
+        .collect::<Vec<String>>()
+        .join("/");
+
+    Ok(PathParameterCode {
+        parameters_struct_variable_name: name_mapping
+            .name_to_property_name(definition_path, "path_parameters"),
+        parameters_struct: path_struct_definition,
+        path_format_string: path_format_string,
+    })
+}
+
+struct QueryParametersCode {
+    pub query_struct: StructDefinition,
+    pub query_struct_variable_name: String,
+    pub unroll_query_parameters_code: String,
+}
+
+fn generate_query_parameter_code(
+    spec: &Spec,
+    operation: &Operation,
+    definition_path: &Vec<String>,
+    name_mapping: &NameMapping,
+    object_database: &mut ObjectDatabase,
+    function_name: &str,
+) -> Result<QueryParametersCode, String> {
+    trace!("Generating query params");
+    let mut query_struct = StructDefinition {
+        name: name_mapping.name_to_struct_name(
+            &definition_path,
+            &format!("{}QueryParameters", &function_name),
+        ),
+        properties: HashMap::new(),
+        used_modules: vec![],
+        local_objects: HashMap::new(),
+    };
+
+    let query_struct_variable_name =
+        name_mapping.name_to_property_name(&definition_path, "query_parameters");
+
+    let mut query_parameters_definition_path = definition_path.clone();
+    query_parameters_definition_path.push(query_struct.name.clone());
+
+    for parameter_ref in &operation.parameters {
+        let parameter = match parameter_ref.resolve(spec) {
+            Ok(parameter) => parameter,
+            Err(err) => return Err(format!("Failed to resolve parameter {}", err.to_string())),
+        };
+        if parameter.location != ParameterIn::Query {
+            continue;
+        }
+
+        let parameter_type = match parameter.schema {
+            Some(schema) => match schema.resolve(spec) {
+                Ok(object_schema) => get_type_from_schema(
+                    spec,
+                    object_database,
+                    query_parameters_definition_path.clone(),
+                    &object_schema,
+                    Some(&parameter.name),
+                    name_mapping,
+                ),
+                Err(err) => {
+                    return Err(format!(
+                        "Failed to resolve parameter {} {}",
+                        parameter.name,
+                        err.to_string()
+                    ))
+                }
+            },
+            None => return Err(format!("Parameter {} has no schema", parameter.name)),
+        };
+
+        let _ = match parameter_type {
+            Ok(parameter_type) => query_struct.properties.insert(
+                name_mapping
+                    .name_to_property_name(&query_parameters_definition_path, &parameter.name),
+                PropertyDefinition {
+                    name: name_mapping
+                        .name_to_property_name(&query_parameters_definition_path, &parameter.name),
+                    module: parameter_type.module,
+                    real_name: parameter.name,
+                    required: match parameter.required {
+                        Some(required) => required,
+                        None => false,
+                    },
+                    type_name: parameter_type.name,
+                },
+            ),
+            Err(err) => return Err(err),
+        };
+    }
+
+    let mut unroll_query_parameters_code = String::new();
+    unroll_query_parameters_code += &format!(
+        "let {} request_query_parameters: Vec<(&str, String)> = vec![{}];\n",
+        match query_struct
+            .properties
+            .iter()
+            .filter(|(_, property)| !property.required || property.type_name.starts_with("Vec<"))
+            .collect::<Vec<(&String, &PropertyDefinition)>>()
+            .len()
+        {
+            0 => "",
+            _ => "mut",
+        },
+        query_struct
+            .properties
+            .iter()
+            .filter(|(_, property)| property.required && !property.type_name.starts_with("Vec<"))
+            .map(|(_, property)| format!(
+                "(\"{}\",{}.{}.to_string())",
+                property.real_name, query_struct_variable_name, property.name
+            ))
+            .collect::<Vec<String>>()
+            .join(",")
+    );
+
+    query_struct
+        .properties
+        .values()
+        .filter(|&property| property.required && property.type_name.starts_with("Vec<"))
+        .for_each(|vector_property|
+    {
+        unroll_query_parameters_code += &format!(
+                "{}.{}.iter().for_each(|query_parameter_item| request_query_parameters.push((\"{}\", query_parameter_item.to_string())));\n",
+                &query_struct_variable_name,
+                name_mapping.name_to_property_name(&definition_path, &vector_property.name),
+                vector_property.real_name
+            );
+    });
+
+    for optional_property in query_struct
+        .properties
+        .values()
+        .filter(|&property| !property.required)
+        .collect::<Vec<&PropertyDefinition>>()
+    {
+        unroll_query_parameters_code += &format!(
+            "if let Some(ref query_parameter) = {}.{} {{\n",
+            query_struct_variable_name, optional_property.name
+        );
+        if optional_property.type_name.starts_with("Vec<") {
+            unroll_query_parameters_code += &format!(
+                "query_parameter.iter().for_each(|query_parameter_item| request_query_parameters.push((\"{}\", query_parameter_item.to_string())));\n",
+                optional_property.real_name
+            );
+        } else {
+            unroll_query_parameters_code += &format!(
+                "request_query_parameters.push((\"{}\", query_parameter.to_string()));\n",
+                optional_property.real_name
+            );
+        }
+        unroll_query_parameters_code += "}\n"
+    }
+
+    Ok(QueryParametersCode {
+        query_struct_variable_name,
+        query_struct,
+        unroll_query_parameters_code,
+    })
+}
+
+fn generate_multi_request_type_functions(
+    definition_path: &Vec<String>,
+    name_mapping: &NameMapping,
+    function_name: &str,
+    path_parameter_code: &PathParameterCode,
+    module_imports: &mut Vec<ModuleInfo>,
+    query_parameter_code: &QueryParametersCode,
+    response_enum_name: &str,
+    method: &reqwest::Method,
+    request_entity: &RequestEntity,
+) -> Option<String> {
+    if request_entity.content.len() < 2 {
+        return None;
+    }
+
+    let mut request_source_code = String::new();
+
+    for (_, transfer_media_type) in &request_entity.content {
+        let content_function_name = name_mapping.name_to_property_name(
+            &definition_path,
+            &format!(
+                "{}{}",
+                function_name,
+                media_type_enum_name(&definition_path, name_mapping, &transfer_media_type)
+            ),
+        );
+        let mut function_parameters = vec![
+            "client: &reqwest::Client".to_owned(),
+            "server: &str".to_owned(),
+        ];
+
+        if path_parameter_code.parameters_struct.properties.len() > 0 {
+            function_parameters.push(format!(
+                "{}: &{}",
+                path_parameter_code.parameters_struct_variable_name,
+                path_parameter_code.parameters_struct.name
+            ));
+        }
+
+        let query_struct = &query_parameter_code.query_struct;
+        if query_struct.properties.len() > 0 {
+            function_parameters.push(format!(
+                "{}: &{}",
+                query_parameter_code.query_struct_variable_name, query_struct.name
+            ));
+        }
+
+        let request_content_variable_name =
+            name_mapping.name_to_property_name(definition_path, "content");
+        match transfer_media_type {
+            TransferMediaType::ApplicationJson(ref type_definition_opt) => {
+                match type_definition_opt {
+                    Some(ref type_definition) => {
+                        if let Some(ref module) = type_definition.module {
+                            if !module_imports.contains(module) {
+                                module_imports.push(module.clone());
+                            }
+                        }
+                        function_parameters.push(format!(
+                            "{}: {}",
+                            request_content_variable_name, type_definition.name
+                        ))
+                    }
+                    None => trace!("Empty request body not added to function params"),
+                }
+            }
+            TransferMediaType::TextPlain => function_parameters.push(format!(
+                "{}: &{}",
+                request_content_variable_name,
+                oas3_type_to_string(&oas3::spec::SchemaType::String)
+            )),
+        }
+
+        request_source_code += &format!(
+            "pub async fn {}({}) -> Result<{}, reqwest::Error> {{\n",
+            content_function_name,
+            function_parameters.join(", "),
+            response_enum_name,
+        );
+
+        // PRE request processing
+        match transfer_media_type {
+            TransferMediaType::TextPlain => {
+                request_source_code +=
+                    &format!("let body = {}.to_owned();\n", request_content_variable_name)
+            }
+            _ => (),
+        }
+
+        // Request attach
+        let request_body = match transfer_media_type {
+            TransferMediaType::ApplicationJson(type_definition) => match type_definition {
+                Some(_) => {
+                    format!(".json(&{})", request_content_variable_name)
+                }
+                None => ".json(&serde_json::json!({}))".to_owned(),
+            },
+            TransferMediaType::TextPlain => ".body(body)".to_owned(),
+        };
+
+        request_source_code += &format!(
+            "let request_builder = client.{}(format!(\"{{server}}{}\", {})){};\n",
+            method.as_str().to_lowercase(),
+            path_parameter_code.path_format_string,
+            path_parameter_code
+                .parameters_struct
+                .properties
+                .iter()
+                .map(|(_, parameter)| format!(
+                    "{}.{}",
+                    path_parameter_code.parameters_struct_variable_name,
+                    name_mapping.name_to_property_name(&definition_path, &parameter.name)
+                ))
+                .collect::<Vec<String>>()
+                .join(","),
+            request_body
+        );
+
+        let request_function_call_parameters = match query_struct.properties.len() {
+            0 => vec!["request_builder".to_owned()],
+            _ => vec![
+                "request_builder".to_owned(),
+                query_parameter_code.query_struct_variable_name.clone(),
+            ],
+        };
+
+        request_source_code += &format!(
+            "{}({}).await",
+            function_name,
+            request_function_call_parameters.join(",")
+        );
+        request_source_code += "}\n";
+    }
+
+    Some(request_source_code)
 }
