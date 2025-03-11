@@ -1,3 +1,0 @@
-[submodule "oas3-rs"]
-	path = oas3-rs
-	url = git@github.com:vgerber/oas3-rs.git
