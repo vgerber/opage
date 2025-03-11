@@ -18,7 +18,8 @@ fn empty_json() {
     let mut spec_file_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     spec_file_path.push("tests/response/specs/empty_json.openapi.yaml");
 
-    let spec = oas3::from_path(spec_file_path).expect("Failed to read spec");
+    let yaml = std::fs::read_to_string(spec_file_path).expect("Failed to read spec yaml");
+    let spec = oas3::from_yaml(yaml).expect("Failed to read spec");
     let path_spec = spec.paths.as_ref().unwrap().get("/test").unwrap();
 
     let mut object_database = ObjectDatabase::new();
