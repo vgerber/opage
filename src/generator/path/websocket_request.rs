@@ -47,9 +47,19 @@ impl {struct_name} {{
             Err(err) => return Err(err.to_string()),
         }};
 
-        match serde_json::from_str::<{response_type_name}>(&response_text) {{
-            Ok(response_json_object) => Ok(response_json_object),
-            Err(err) => Err(err.to_string()),
+        let result = match serde_json::from_str::<serde_json::Value>(&response_text) {{
+            Ok(response_json_object) => response_json_object,
+            Err(err) => return Err(err.to_string()),
+        }};
+
+        let response_object = match result.get(\"result\") {{
+            Some(response_object) => response_object,
+            None => return Err(\"No result in message\".to_string()),
+        }};
+
+        match serde_json::from_value::<{response_type_name}>(response_object.clone()) {{
+            Ok(response_object) => Ok(response_object),
+            Err(err) => return Err(err.to_string()),
         }}
     }}
 }}
@@ -204,6 +214,18 @@ pub fn generate_operation(
             name: "MaybeTlsStream".to_owned(),
             path: "tungstenite::stream".to_owned(),
         },
+        ModuleInfo {
+            name: "Uri".to_owned(),
+            path: "tungstenite::http".to_owned(),
+        },
+        ModuleInfo {
+            name: "IntoClientRequest".to_owned(),
+            path: "tungstenite::client".to_owned(),
+        },
+        ModuleInfo {
+            name: "HeaderName".to_owned(),
+            path: "http".to_owned(),
+        },
     ];
 
     if let Some(ref socket_transfer_type_module) = socket_transfer_type_definition.module {
@@ -295,6 +317,8 @@ pub fn generate_operation(
         query_struct_source_code += &query_struct.to_string(false);
         query_struct_source_code += "\n\n";
     }
+
+    function_parameters.push("additional_headers: Option<Vec<(String, String)>>".to_owned());
 
     // Request Body
     let request_body = match operation.request_body {
@@ -478,17 +502,47 @@ pub fn generate_operation(
     }";
 
     request_source_code += &format!(
-        "let (socket, _) = match connect(format!(
-        \"{{}}{}{{}}\",
-        host,
-        {}
-        query_string
-    )) {{
-        Ok(connection) => connection,
-        Err(err) => return Err(err),
-}};",
+        "let url = format!(
+            \"{{}}{}{{}}\",
+            host,
+            {}
+            query_string
+        );",
         path_format_string, path_parameter_arguments
     );
+
+    request_source_code += "
+    let uri: Uri = match url.parse() {
+        Ok(uri) => uri,
+        Err(err) => return Err(err.into()),
+    };
+
+    let mut request = match uri.into_client_request() {
+        Ok(request) => request,
+        Err(err) => return Err(err),
+    };
+    let request_headers = request.headers_mut();
+
+    if let Some(additional_headers) = additional_headers {
+        additional_headers.iter().for_each(|(key, value)| {
+            let key = match HeaderName::try_from(key) {
+                Ok(key) => key,
+                Err(_) => return (),
+            };
+            let value = match value.parse() {
+                Ok(value) => value,
+                Err(_) => return (),
+            };
+            request_headers.append(key, value);
+        });
+    }
+
+    let (socket, _) = match connect(request) {
+        Ok(connection) => connection,
+        Err(err) => return Err(err),
+    };";
+
+    request_source_code += &format!("");
     request_source_code += &format!("Ok({}::from(socket))", socket_stream_struct_name);
     request_source_code += "}";
     Ok(request_source_code)

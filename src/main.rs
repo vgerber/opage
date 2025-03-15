@@ -10,6 +10,7 @@ use generator::{
     component::{generate_components, write_object_database},
     paths::generate_paths,
 };
+use log::info;
 use utils::{config::Config, log::Logger};
 
 static LOGGER: Logger = Logger;
@@ -33,7 +34,8 @@ fn main() {
     // Start generating
 
     // 1. Read spec
-    let spec = oas3::from_path(Path::new(spec_file_path)).expect("Failed to read spec");
+    let spec_yaml = std::fs::read_to_string(spec_file_path).expect("Failed to read yaml");
+    let spec = oas3::from_yaml(spec_yaml).expect("Failed to read spec");
 
     // 2. Load config (Get mapper for invalid language names, ignores...)
     let config = match config_file_path {
@@ -69,8 +71,14 @@ fn main() {
             .unwrap();
     }
 
-    let mut cargo_file =
-        File::create(format!("{}/Cargo.toml", output_dir)).expect("Failed to create Cargo.toml");
+    let output_cargo_file_path = format!("{}/Cargo.toml", output_dir);
+    let cargo_file_path = Path::new(&output_cargo_file_path);
+    if cargo_file_path.exists() {
+        info!("{:?} exists and will be skipped", output_cargo_file_path);
+        return;
+    }
+
+    let mut cargo_file = File::create(output_cargo_file_path).expect("Failed to create Cargo.toml");
     cargo_file
         .write(
             generate_cargo_content(&config.project_metadata)
