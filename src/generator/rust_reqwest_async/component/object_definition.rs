@@ -6,7 +6,8 @@ use oas3::{
     Spec,
 };
 use types::{
-    EnumDefinition, EnumValue, ModuleInfo, ObjectDefinition, PrimitveDefinition, PropertyDefinition, StructDefinition
+    EnumDefinition, EnumValue, ModuleInfo, ObjectDefinition, PrimitveDefinition,
+    PropertyDefinition, StructDefinition,
 };
 
 use crate::utils::name_mapping::NameMapping;
@@ -87,7 +88,7 @@ pub fn generate_object(
 
     let schema_type = match object_schema.schema_type {
         Some(ref schema_type) => schema_type,
-        None =>  &SchemaTypeSet::Single(oas3::spec::SchemaType::String)
+        None => &SchemaTypeSet::Single(oas3::spec::SchemaType::String),
     };
 
     match schema_type {
@@ -108,7 +109,10 @@ pub fn generate_object(
                 Some(name),
                 name_mapping,
             ) {
-                Ok(type_definition) => Ok(ObjectDefinition::Primitive(PrimitveDefinition { name: name.to_owned(), primitive_type: type_definition })),
+                Ok(type_definition) => Ok(ObjectDefinition::Primitive(PrimitveDefinition {
+                    name: name.to_owned(),
+                    primitive_type: type_definition,
+                })),
                 Err(err) => Err(err),
             },
         },
@@ -397,7 +401,6 @@ pub fn generate_enum_from_one_of(
     }
     Ok(ObjectDefinition::Enum(enum_definition))
 }
-
 
 pub fn generate_struct(
     spec: &Spec,

@@ -7,7 +7,7 @@ use oas3::{
 };
 
 use crate::{
-    generator::component::{
+    generator::rust_reqwest_async::component::{
         object_definition::{
             oas3_type_to_string,
             types::{ModuleInfo, ObjectDatabase, PropertyDefinition, StructDefinition},

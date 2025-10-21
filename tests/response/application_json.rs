@@ -1,5 +1,5 @@
 use opage::{
-    generator::{
+    generator::rust_reqwest_async::{
         component::object_definition::types::ObjectDatabase,
         path::default_request::generate_operation,
     },

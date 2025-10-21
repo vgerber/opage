@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use opage::{generator::component::generate_components, utils::config::Config};
+use opage::{generator::rust_reqwest_async::component::generate_components, utils::config::Config};
 
 #[test]
 fn title_of_component_used() {

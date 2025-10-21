@@ -3,7 +3,7 @@ use super::utils::{
     TransferMediaType,
 };
 use crate::{
-    generator::component::{
+    generator::rust_reqwest_async::component::{
         object_definition::{
             oas3_type_to_string,
             types::{

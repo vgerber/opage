@@ -5,7 +5,7 @@ pub mod utils;
 use std::{fs::File, io::Write, path::Path};
 
 use cli::cli;
-use generator::{
+use generator::rust_reqwest_async::{
     cargo::generate_cargo_content,
     component::{generate_components, write_object_database},
     paths::generate_paths,

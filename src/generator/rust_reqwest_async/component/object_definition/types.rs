@@ -131,5 +131,5 @@ impl StructDefinition {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PrimitveDefinition {
     pub name: String,
-    pub primitive_type: TypeDefinition
+    pub primitive_type: TypeDefinition,
 }
