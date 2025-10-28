@@ -3,7 +3,7 @@ use askama::Template;
 use crate::utils::config::ProjectMetadata;
 
 #[derive(Template)]
-#[template(path = "rust_reqwest_async/cargo.template.txt", ext = "txt")]
+#[template(path = "rust_reqwest_async/cargo.toml.jinja", ext = "txt")]
 struct CargoTomlTemplate {
     name: String,
     version: String,
