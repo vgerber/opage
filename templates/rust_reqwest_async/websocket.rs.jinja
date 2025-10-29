@@ -69,8 +69,11 @@ pub async fn {{function_name}}(host: &str, {{ function_parameters | safe}}) -> R
     {% endfor %}
     ];
 
-    // Optional Query Parameters
+    
     {% for optional_query_parameter in query_parameters if !optional_query_parameter.is_required %}
+    {% if loop.first %}
+    // Optional Query Parameters
+    {% endif %}
     if let Some(ref query_parameter) = {{ optional_query_parameter.struct_name }}.{{ optional_query_parameter.name }} {
         {% if optional_query_parameter.is_array %}
         query_parameter.iter().for_each(|query_parameter_item| query_parameters.push(("{{ optional_query_parameter.real_name }}", query_parameter_item.to_string())));
@@ -80,9 +83,12 @@ pub async fn {{function_name}}(host: &str, {{ function_parameters | safe}}) -> R
     }
     {% endfor %}
 
-    // Array Query Parameters
+    
     {% for array_query_parameter in query_parameters if array_query_parameter.is_array && array_query_parameter.is_required %}
-        query_parameter.iter().for_each(|query_parameter_item| query_parameters.push(("{{ array_query_parameter.real_name }}", query_parameter_item.to_string())));
+    {% if loop.first %}
+    // Required Array Query Parameters
+    {% endif %}
+    query_parameter.iter().for_each(|query_parameter_item| query_parameters.push(("{{ array_query_parameter.real_name }}", query_parameter_item.to_string())));
     {% endfor %}
 
 
