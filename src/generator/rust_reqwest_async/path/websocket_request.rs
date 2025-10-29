@@ -2,14 +2,20 @@ use super::utils::{
     generate_request_body, generate_responses, is_path_parameter, TransferMediaType,
 };
 use crate::{
-    generator::rust_reqwest_async::component::{
-        object_definition::{
-            oas3_type_to_string,
-            types::{
-                ModuleInfo, ObjectDatabase, PropertyDefinition, StructDefinition, TypeDefinition,
+    generator::rust_reqwest_async::{
+        component::{
+            object_definition::{
+                oas3_type_to_string,
+                types::{
+                    ModuleInfo, ObjectDatabase, PropertyDefinition, StructDefinition,
+                    TypeDefinition,
+                },
             },
+            type_definition::get_type_from_schema,
         },
-        type_definition::get_type_from_schema,
+        templates::{
+            EnumDefinitionTemplate, PrimitiveDefinitionTemplate, StructDefinitionTemplate,
+        },
     },
     utils::name_mapping::NameMapping,
 };
@@ -39,15 +45,18 @@ struct FunctionParameter {
 #[derive(Template)]
 #[template(path = "rust_reqwest_async/websocket.rs.jinja", ext = "txt")]
 struct WebSocketRequestTemplate {
+    // Base
+    module_imports: Vec<ModuleInfo>,
+    struct_definitions: Vec<StructDefinitionTemplate>,
+    enum_definitions: Vec<EnumDefinitionTemplate>,
+    primitive_definitions: Vec<PrimitiveDefinitionTemplate>,
+    // WebSocket
     socket_stream_struct_name: String,
     response_type_name: String,
     function_name: String,
     function_parameters: Vec<FunctionParameter>,
-    path_struct_definition: String,
     path_format_string: String,
     path_parameter_arguments: String,
-    module_imports: Vec<ModuleInfo>,
-    query_struct_definition: String,
     query_parameters_mutable: bool,
     query_parameters: Vec<QueryParameter>,
 }
@@ -149,6 +158,7 @@ pub fn generate_operation(
             .collect::<HashMap<String, PropertyDefinition>>(),
         local_objects: HashMap::new(),
     };
+    let mut struct_definitions = vec![&path_struct_definition];
 
     let path_format_string = path
         .split("/")
@@ -289,15 +299,13 @@ pub fn generate_operation(
         };
     }
 
-    let mut query_struct_source_code = String::new();
     if query_struct.properties.len() > 0 {
         function_parameters.push(FunctionParameter {
             name: name_mapping
                 .name_to_property_name(&operation_definition_path, &query_struct.name),
             type_name: query_struct.name.clone(),
         });
-        query_struct_source_code += &query_struct.to_string(false);
-        query_struct_source_code += "\n\n";
+        struct_definitions.push(&query_struct);
     }
 
     function_parameters.push(FunctionParameter {
@@ -380,6 +388,10 @@ pub fn generate_operation(
     }
 
     WebSocketRequestTemplate {
+        module_imports: module_imports,
+        enum_definitions: vec![],
+        primitive_definitions: vec![],
+        struct_definitions: struct_definitions.iter().map(|&s| s.into()).collect(),
         socket_stream_struct_name: format!(
             "{}Stream",
             name_mapping.name_to_struct_name(&operation_definition_path, &function_name)
@@ -387,11 +399,8 @@ pub fn generate_operation(
         response_type_name: socket_transfer_type_definition.name.clone(),
         function_name: function_name.clone(),
         function_parameters: function_parameters,
-        path_struct_definition: path_struct_definition.to_string(false),
         path_format_string: path_format_string,
         path_parameter_arguments: path_parameter_arguments,
-        module_imports: module_imports,
-        query_struct_definition: query_struct_source_code,
         query_parameters_mutable: query_struct
             .properties
             .iter()

@@ -3,14 +3,18 @@ use std::{
     io::Write,
 };
 
+use askama::Template;
 use log::{error, info, trace};
 use oas3::Spec;
 use object_definition::{
-    generate_object, get_components_base_path, get_object_name, modules_to_string,
+    generate_object, get_components_base_path, get_object_name,
     types::{ObjectDatabase, ObjectDefinition},
 };
 
-use crate::utils::{config::Config, name_mapping::NameMapping};
+use crate::{
+    generator::rust_reqwest_async::templates::BaseTemplate,
+    utils::{config::Config, name_mapping::NameMapping},
+};
 
 pub mod object_definition;
 pub mod type_definition;
@@ -127,46 +131,33 @@ pub fn write_object_database(
                 }
             };
 
-        match object_definition {
-            ObjectDefinition::Struct(struct_definition) => {
-                object_file
-                    .write(modules_to_string(&struct_definition.get_required_modules()).as_bytes())
-                    .expect("Failed to write imports");
-                object_file.write("\n".as_bytes()).unwrap();
+        let template: BaseTemplate = match object_definition {
+            ObjectDefinition::Struct(struct_definition) => struct_definition.into(),
+            ObjectDefinition::Enum(enum_definition) => enum_definition.into(),
+            ObjectDefinition::Primitive(primitive_definition) => primitive_definition.into(),
+        };
 
-                object_file
-                    .write(struct_definition.to_string(true).as_bytes())
-                    .unwrap();
+        let rendered_template = match template.render() {
+            Ok(rendered_template) => rendered_template,
+            Err(err) => {
+                error!(
+                    "Failed to render object template {} {}",
+                    object_name,
+                    err.to_string()
+                );
+                continue;
             }
-            ObjectDefinition::Enum(enum_definition) => {
-                object_file
-                    .write(modules_to_string(&enum_definition.get_required_modules()).as_bytes())
-                    .expect("Failed to write imports");
-                object_file.write("\n".as_bytes()).unwrap();
+        };
 
-                object_file
-                    .write(enum_definition.to_string(true).as_bytes())
-                    .unwrap();
-            }
-            ObjectDefinition::Primitive(primitive_definition) => {
-                object_file
-                    .write(
-                        modules_to_string(
-                            &primitive_definition
-                                .primitive_type.module
-                                .as_ref()
-                                .map_or(vec![], |module| vec![module]),
-                        )
-                        .as_bytes(),
-                    )
-                    .expect("Failed to write imports");
-                object_file.write("\n".as_bytes()).unwrap();
-
-                object_file
-                    .write(format!("pub type {} = {};\n", primitive_definition.name, primitive_definition.primitive_type.name).as_bytes())
-                    .unwrap();
-            }
-        }
+        object_file
+            .write(rendered_template.as_bytes())
+            .map_err(|err| {
+                format!(
+                    "Failed to write to object file {}.rs {}",
+                    module_name,
+                    err.to_string()
+                )
+            })?;
     }
 
     let mut object_mod_file = match File::create(format!("{}/src/objects/mod.rs", output_dir)) {

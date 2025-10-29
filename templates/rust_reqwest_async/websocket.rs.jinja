@@ -1,10 +1,7 @@
-{% for module_import in module_imports %}
-use {{module_import.path}}::{{module_import.name}};
-{% endfor %}
+{% extends "rust_reqwest_async/base.rs.jinja" %}
 
-{{ query_struct_definition | safe }}
 
-{{ path_struct_definition | safe }}
+{% block content %}
 
 pub struct {{ socket_stream_struct_name }} {
     socket: WebSocket<MaybeTlsStream<TcpStream>>,
@@ -152,3 +149,4 @@ pub async fn {{function_name}}(
 
     Ok({{socket_stream_struct_name}}::from(socket))
 }
+{% endblock %}
