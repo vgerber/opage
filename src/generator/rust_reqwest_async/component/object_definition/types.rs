@@ -84,3 +84,15 @@ pub struct PrimitveDefinition {
     pub name: String,
     pub primitive_type: TypeDefinition,
 }
+
+pub fn to_unique_list(modules: &Vec<ModuleInfo>) -> Vec<ModuleInfo> {
+    let mut unique_modules: Vec<ModuleInfo> = vec![];
+    for module in modules {
+        if !unique_modules.iter().any(|unique_module| {
+            unique_module.name == module.name && unique_module.path == module.path
+        }) {
+            unique_modules.push(module.clone());
+        }
+    }
+    unique_modules
+}

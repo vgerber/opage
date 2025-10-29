@@ -34,7 +34,7 @@ pub enum {{ enum_definition.name }} {
 pub struct {{ struct_definition.name }} {
     {% for property in struct_definition.properties %}
     {% if property.real_name != property.name %}
-    #[serde(alias = {{ property.real_name | safe }})]
+    #[serde(alias = "{{ property.real_name | safe }}")]
     {%endif%}
     {% if property.required %}
     pub {{ property.name }}: {{ property.type_name | safe }},

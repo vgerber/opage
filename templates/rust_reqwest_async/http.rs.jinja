@@ -1,0 +1,13 @@
+{% extends "rust_reqwest_async/base.rs.jinja" %}
+
+
+{% block content %}
+
+pub async fn {{function_name}}(
+    host: &str,
+    {% for function_parameter in function_parameters %}
+    {{ function_parameter.name}}: &{{ function_parameter.type_name | safe }},
+    {% endfor %}
+    ) -> Result<{{socket_stream_struct_name}}, tungstenite::Error> {
+}
+{% endblock %}

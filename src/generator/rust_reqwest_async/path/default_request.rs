@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use askama::Template;
 use log::trace;
 use oas3::{
     spec::{Operation, ParameterIn},
@@ -7,12 +8,17 @@ use oas3::{
 };
 
 use crate::{
-    generator::rust_reqwest_async::component::{
-        object_definition::{
-            oas3_type_to_string,
-            types::{ModuleInfo, ObjectDatabase, PropertyDefinition, StructDefinition},
+    generator::rust_reqwest_async::{
+        component::{
+            object_definition::{
+                oas3_type_to_string,
+                types::{ModuleInfo, ObjectDatabase, PropertyDefinition, StructDefinition},
+            },
+            type_definition::get_type_from_schema,
         },
-        type_definition::get_type_from_schema,
+        templates::{
+            EnumDefinitionTemplate, PrimitiveDefinitionTemplate, StructDefinitionTemplate,
+        },
     },
     utils::name_mapping::NameMapping,
 };
@@ -21,6 +27,40 @@ use super::utils::{
     generate_request_body, generate_responses, is_path_parameter, use_module_to_string,
     RequestEntity, TransferMediaType,
 };
+
+#[derive(Debug)]
+struct QueryParameter {
+    is_required: bool,
+    is_array: bool,
+    real_name: String,
+    name: String,
+    struct_name: String,
+}
+
+#[derive(Debug)]
+struct FunctionParameter {
+    name: String,
+    type_name: String,
+}
+
+#[derive(Template)]
+#[template(path = "rust_reqwest_async/http.rs.jinja", ext = "rs")]
+struct HttpRequestTemplate {
+    // Base
+    module_imports: Vec<ModuleInfo>,
+    struct_definitions: Vec<StructDefinitionTemplate>,
+    enum_definitions: Vec<EnumDefinitionTemplate>,
+    primitive_definitions: Vec<PrimitiveDefinitionTemplate>,
+    // WebSocket
+    socket_stream_struct_name: String,
+    response_type_name: String,
+    function_name: String,
+    function_parameters: Vec<FunctionParameter>,
+    path_format_string: String,
+    path_parameter_arguments: String,
+    query_parameters_mutable: bool,
+    query_parameters: Vec<QueryParameter>,
+}
 
 pub fn generate_operation(
     spec: &Spec,
@@ -296,22 +336,10 @@ pub fn generate_operation(
     }
 
     trace!("Generating source code");
-    request_source_code += &module_imports
-        .iter()
-        .map(use_module_to_string)
-        .collect::<Vec<String>>()
-        .join("\n");
-    request_source_code += "\n\n";
-    request_source_code += &response_enum_source_code;
-    request_source_code += "\n";
-    if !path_parameter_code.parameters_struct.properties.is_empty() {
-        request_source_code += &path_parameter_code.parameters_struct.to_string(false);
-        request_source_code += "\n";
-    }
-
-    if query_parameter_code.query_struct.properties.len() > 0 {
-        request_source_code += &query_parameter_code.query_struct.to_string(false);
-    }
+    let struct_definition_templates = vec![
+        (&path_parameter_code.parameters_struct).into(),
+        (&query_parameter_code.query_struct).into(),
+    ];
 
     request_source_code += "\n";
 
@@ -602,7 +630,26 @@ pub fn generate_operation(
 
     // function
     request_source_code += "}\n";
-    Ok(request_source_code)
+
+    let template = HttpRequestTemplate {
+        module_imports: module_imports,
+        struct_definitions: struct_definition_templates,
+        enum_definitions: vec![],
+        primitive_definitions: vec![],
+        socket_stream_struct_name: String::new(),
+        response_type_name: response_enum_name,
+        function_name: function_name,
+        function_parameters: vec![],
+        path_format_string: path_parameter_code.path_format_string,
+        path_parameter_arguments: String::new(),
+        query_parameters_mutable: query_struct
+            .properties
+            .iter()
+            .any(|(_, param)| !param.required),
+        query_parameters: vec![],
+    };
+
+    template.render().map_err(|err| err.to_string())
 }
 
 fn media_type_enum_name(

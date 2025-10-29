@@ -43,7 +43,7 @@ struct FunctionParameter {
 }
 
 #[derive(Template)]
-#[template(path = "rust_reqwest_async/websocket.rs.jinja", ext = "txt")]
+#[template(path = "rust_reqwest_async/websocket.rs.jinja", ext = "rs")]
 struct WebSocketRequestTemplate {
     // Base
     module_imports: Vec<ModuleInfo>,

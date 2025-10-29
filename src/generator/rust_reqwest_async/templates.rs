@@ -1,7 +1,8 @@
 use askama::{PrimitiveType, Template};
 
 use crate::generator::rust_reqwest_async::component::object_definition::types::{
-    EnumDefinition, EnumValue, ModuleInfo, PrimitveDefinition, PropertyDefinition, StructDefinition,
+    to_unique_list, EnumDefinition, EnumValue, ModuleInfo, PrimitveDefinition, PropertyDefinition,
+    StructDefinition,
 };
 
 pub struct PrimitiveDefinitionTemplate {
@@ -27,11 +28,13 @@ impl From<&PrimitveDefinition> for BaseTemplate {
                 name: primitive_definition.name.clone(),
                 type_name: primitive_definition.primitive_type.name.clone(),
             }],
-            module_imports: primitive_definition
-                .primitive_type
-                .module
-                .as_ref()
-                .map_or(vec![], |module| vec![module.clone()]),
+            module_imports: to_unique_list(
+                &primitive_definition
+                    .primitive_type
+                    .module
+                    .as_ref()
+                    .map_or(vec![], |module| vec![module.clone()]),
+            ),
         }
     }
 }
@@ -76,11 +79,13 @@ impl From<&EnumDefinition> for BaseTemplate {
             struct_definitions: vec![],
             enum_definitions: vec![EnumDefinitionTemplate::from(enum_definition)],
             primitive_definitions: vec![],
-            module_imports: enum_definition
-                .get_required_modules()
-                .iter()
-                .map(|&module| module.clone())
-                .collect(),
+            module_imports: to_unique_list(
+                &enum_definition
+                    .get_required_modules()
+                    .iter()
+                    .map(|&module| module.clone())
+                    .collect(),
+            ),
         }
     }
 }
@@ -99,20 +104,6 @@ impl From<&PropertyDefinition> for PropertyTemplate {
             name: property.name.clone(),
             type_name: property.type_name.clone(),
             required: property.required,
-        }
-    }
-}
-
-impl From<&PrimitiveDefinitionTemplate> for BaseTemplate {
-    fn from(primitive_definition: &PrimitiveDefinitionTemplate) -> Self {
-        BaseTemplate {
-            struct_definitions: vec![],
-            enum_definitions: vec![],
-            primitive_definitions: vec![PrimitiveDefinitionTemplate {
-                name: primitive_definition.name.clone(),
-                type_name: primitive_definition.type_name.clone(),
-            }],
-            module_imports: vec![],
         }
     }
 }
@@ -143,11 +134,13 @@ impl From<&StructDefinition> for BaseTemplate {
             struct_definitions: vec![StructDefinitionTemplate::from(struct_definition)],
             enum_definitions: vec![],
             primitive_definitions: vec![],
-            module_imports: struct_definition
-                .get_required_modules()
-                .iter()
-                .map(|&module| module.clone())
-                .collect(),
+            module_imports: to_unique_list(
+                &struct_definition
+                    .get_required_modules()
+                    .iter()
+                    .map(|&module| module.clone())
+                    .collect(),
+            ),
         }
     }
 }
