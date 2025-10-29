@@ -13,13 +13,13 @@ use crate::{
     },
     utils::name_mapping::NameMapping,
 };
-use askama::{filters::HtmlSafe, Template};
+use askama::Template;
 use log::error;
 use oas3::{
     spec::{FromRef, ObjectOrReference, ObjectSchema, Operation, ParameterIn},
     Spec,
 };
-use std::{collections::HashMap, fmt::Display};
+use std::collections::HashMap;
 
 #[derive(Debug)]
 struct QueryParameter {
@@ -29,18 +29,12 @@ struct QueryParameter {
     name: String,
     struct_name: String,
 }
-impl Display for QueryParameter {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "QueryParameter")
-    }
-}
 
-impl Display for ModuleInfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "use {}::{};", self.path, self.name)
-    }
+#[derive(Debug)]
+struct FunctionParameter {
+    name: String,
+    type_name: String,
 }
-impl HtmlSafe for ModuleInfo {}
 
 #[derive(Template)]
 #[template(path = "rust_reqwest_async/websocket.rs.jinja", ext = "txt")]
@@ -48,7 +42,7 @@ struct WebSocketRequestTemplate {
     socket_stream_struct_name: String,
     response_type_name: String,
     function_name: String,
-    function_parameters: String,
+    function_parameters: Vec<FunctionParameter>,
     path_struct_definition: String,
     path_format_string: String,
     path_parameter_arguments: String,
@@ -167,15 +161,14 @@ pub fn generate_operation(
         .collect::<Vec<String>>()
         .join("/");
 
-    let mut function_parameters = vec![];
+    let mut function_parameters: Vec<FunctionParameter> = vec![];
 
     if !path_struct_definition.properties.is_empty() {
-        function_parameters.push(format!(
-            "{}: &{}",
-            name_mapping
+        function_parameters.push(FunctionParameter {
+            name: name_mapping
                 .name_to_property_name(&operation_definition_path, &path_struct_definition.name),
-            path_struct_definition.name
-        ));
+            type_name: path_struct_definition.name.clone(),
+        });
     }
 
     let mut module_imports = vec![
@@ -298,16 +291,19 @@ pub fn generate_operation(
 
     let mut query_struct_source_code = String::new();
     if query_struct.properties.len() > 0 {
-        function_parameters.push(format!(
-            "{}: &{}",
-            name_mapping.name_to_property_name(&operation_definition_path, &query_struct.name),
-            query_struct.name
-        ));
+        function_parameters.push(FunctionParameter {
+            name: name_mapping
+                .name_to_property_name(&operation_definition_path, &query_struct.name),
+            type_name: query_struct.name.clone(),
+        });
         query_struct_source_code += &query_struct.to_string(false);
         query_struct_source_code += "\n\n";
     }
 
-    function_parameters.push("additional_headers: Option<Vec<(String, String)>>".to_owned());
+    function_parameters.push(FunctionParameter {
+        name: "additional_headers".to_owned(),
+        type_name: "Option<Vec<(String, String)>>".to_owned(),
+    });
 
     // Request Body
     let request_body = match operation.request_body {
@@ -346,21 +342,20 @@ pub fn generate_operation(
                                 module_imports.push(module.clone());
                             }
                         }
-                        function_parameters.push(format!(
-                            "{}: {}",
-                            name_mapping.name_to_property_name(
+                        function_parameters.push(FunctionParameter {
+                            name: name_mapping.name_to_property_name(
                                 &operation_definition_path,
-                                &type_definition.name
+                                &type_definition.name,
                             ),
-                            type_definition.name
-                        ))
+                            type_name: type_definition.name.clone(),
+                        });
                     }
                     None => (),
                 },
-                TransferMediaType::TextPlain => function_parameters.push(format!(
-                    "request_string: &{}",
-                    oas3_type_to_string(&oas3::spec::SchemaType::String)
-                )),
+                TransferMediaType::TextPlain => function_parameters.push(FunctionParameter {
+                    name: "request_string".to_owned(),
+                    type_name: oas3_type_to_string(&oas3::spec::SchemaType::String),
+                }),
             }
             break;
         }
@@ -391,7 +386,7 @@ pub fn generate_operation(
         ),
         response_type_name: socket_transfer_type_definition.name.clone(),
         function_name: function_name.clone(),
-        function_parameters: function_parameters.join(", "),
+        function_parameters: function_parameters,
         path_struct_definition: path_struct_definition.to_string(false),
         path_format_string: path_format_string,
         path_parameter_arguments: path_parameter_arguments,

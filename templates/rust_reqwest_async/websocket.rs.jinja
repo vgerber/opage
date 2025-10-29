@@ -1,5 +1,5 @@
 {% for module_import in module_imports %}
-{{module_import}}
+use {{module_import.path}}::{{module_import.name}};
 {% endfor %}
 
 {{ query_struct_definition | safe }}
@@ -48,7 +48,12 @@ impl {{ socket_stream_struct_name }} {
 }
 
 
-pub async fn {{function_name}}(host: &str, {{ function_parameters | safe}}) -> Result<{{socket_stream_struct_name}}, tungstenite::Error> {
+pub async fn {{function_name}}(
+    host: &str,
+    {% for function_parameter in function_parameters %}
+    {{ function_parameter.name}}: &{{ function_parameter.type_name | safe }},
+    {% endfor %}
+    ) -> Result<{{socket_stream_struct_name}}, tungstenite::Error> {
 
     {% let has_query_parameters = query_parameters.len() > 0 %}
     {% if has_query_parameters %}
