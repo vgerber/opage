@@ -391,7 +391,10 @@ pub fn generate_operation(
         module_imports: module_imports,
         enum_definitions: vec![],
         primitive_definitions: vec![],
-        struct_definitions: struct_definitions.iter().map(|&s| s.into()).collect(),
+        struct_definitions: struct_definitions
+            .iter()
+            .map(|&s| Into::<StructDefinitionTemplate>::into(s).serializable(false))
+            .collect(),
         socket_stream_struct_name: format!(
             "{}Stream",
             name_mapping.name_to_struct_name(&operation_definition_path, &function_name)

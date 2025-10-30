@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use askama::Template;
-use log::trace;
+use log::{trace, warn};
 use oas3::{
     spec::{Operation, ParameterIn},
     Spec,
@@ -12,7 +12,10 @@ use crate::{
         component::{
             object_definition::{
                 oas3_type_to_string,
-                types::{ModuleInfo, ObjectDatabase, PropertyDefinition, StructDefinition},
+                types::{
+                    to_unique_list, EnumDefinition, EnumValue, ModuleInfo, ObjectDatabase,
+                    PropertyDefinition, StructDefinition, TypeDefinition,
+                },
             },
             type_definition::get_type_from_schema,
         },
@@ -24,8 +27,7 @@ use crate::{
 };
 
 use super::utils::{
-    generate_request_body, generate_responses, is_path_parameter, use_module_to_string,
-    RequestEntity, TransferMediaType,
+    generate_request_body, generate_responses, is_path_parameter, RequestEntity, TransferMediaType,
 };
 
 #[derive(Debug)]
@@ -41,6 +43,7 @@ struct QueryParameter {
 struct FunctionParameter {
     name: String,
     type_name: String,
+    reference: bool,
 }
 
 #[derive(Template)]
@@ -51,15 +54,25 @@ struct HttpRequestTemplate {
     struct_definitions: Vec<StructDefinitionTemplate>,
     enum_definitions: Vec<EnumDefinitionTemplate>,
     primitive_definitions: Vec<PrimitiveDefinitionTemplate>,
-    // WebSocket
-    socket_stream_struct_name: String,
+    // Request
     response_type_name: String,
+    function_visibility: String,
     function_name: String,
     function_parameters: Vec<FunctionParameter>,
     path_format_string: String,
     path_parameter_arguments: String,
+    request_query_parameters_code: String,
+    request_body_content_types_count: usize,
+    request_media_type: String,
+    request_content_variable_name: String,
+    request_method: String,
+    has_response_any_multi_content_type: bool,
+
     query_parameters_mutable: bool,
     query_parameters: Vec<QueryParameter>,
+
+    response_parse_code: String,
+    multi_request_type_source_code: String,
 }
 
 pub fn generate_operation(
@@ -118,8 +131,6 @@ pub fn generate_operation(
     let mut response_enum_definition_path = operation_definition_path.clone();
     response_enum_definition_path.push(response_enum_name.clone());
 
-    let mut request_source_code = String::new();
-
     let mut module_imports = vec![ModuleInfo {
         name: "reqwest".to_owned(),
         path: String::new(),
@@ -132,9 +143,6 @@ pub fn generate_operation(
                 TransferMediaType::ApplicationJson(ref type_definition) => match type_definition {
                     Some(type_definition) => match type_definition.module {
                         Some(ref module_info) => {
-                            if module_imports.contains(module_info) {
-                                continue;
-                            }
                             module_imports.push(module_info.clone());
                         }
                         _ => (),
@@ -146,9 +154,8 @@ pub fn generate_operation(
         }
     }
 
-    let mut response_enum_source_code = String::new();
-
     // Generated enums for multi content type responses
+    let mut response_enums: Vec<EnumDefinition> = vec![];
     for (_, entity) in &response_entities {
         if entity.content.len() < 2 {
             continue;
@@ -158,32 +165,54 @@ pub fn generate_operation(
             &response_enum_definition_path,
             &format!("{}Value", entity.canonical_status_code),
         );
-        response_enum_source_code += &format!("pub enum {} {{\n", &response_code_enum_name);
+
+        let mut response_enum = EnumDefinition {
+            name: response_code_enum_name.clone(),
+            used_modules: vec![],
+            values: HashMap::new(),
+        };
         let mut enum_definition_path = operation_definition_path.clone();
         enum_definition_path.push(response_code_enum_name);
 
         for (_, transfer_media_type) in &entity.content {
             let transfer_media_type_name =
                 media_type_enum_name(&enum_definition_path, name_mapping, transfer_media_type);
-            response_enum_source_code += &match transfer_media_type {
-                TransferMediaType::ApplicationJson(type_definiton) => match type_definiton {
-                    Some(type_definition) => {
-                        format!("{}({}),\n", transfer_media_type_name, type_definition.name)
-                    }
-
-                    None => format!("{},\n", transfer_media_type_name),
+            let enum_value = &match transfer_media_type {
+                TransferMediaType::ApplicationJson(type_definition) => match type_definition {
+                    Some(type_definition) => EnumValue {
+                        name: transfer_media_type_name,
+                        value_type: type_definition.clone(),
+                    },
+                    None => EnumValue {
+                        name: transfer_media_type_name,
+                        value_type: TypeDefinition {
+                            name: "".to_string(),
+                            module: None,
+                        },
+                    },
                 },
-                TransferMediaType::TextPlain => format!(
-                    "{}({}),\n",
-                    transfer_media_type_name,
-                    oas3_type_to_string(&oas3::spec::SchemaType::String)
-                ),
-            }
+                TransferMediaType::TextPlain => EnumValue {
+                    name: transfer_media_type_name,
+                    value_type: TypeDefinition {
+                        name: oas3_type_to_string(&oas3::spec::SchemaType::String),
+                        module: None,
+                    },
+                },
+            };
+
+            response_enum
+                .values
+                .insert(enum_value.name.clone(), enum_value.clone());
         }
-        response_enum_source_code += "}\n\n";
+
+        response_enums.push(response_enum);
     }
 
-    response_enum_source_code += &format!("pub enum {} {{\n", response_enum_name);
+    let mut response_enum = EnumDefinition {
+        name: response_enum_name.clone(),
+        used_modules: vec![],
+        values: HashMap::new(),
+    };
 
     for (status_code, entity) in &response_entities {
         let response_enum_name = name_mapping.name_to_struct_name(
@@ -191,22 +220,31 @@ pub fn generate_operation(
             &format!("{}", entity.canonical_status_code),
         );
 
-        response_enum_source_code += &match entity.content.len() {
+        let enum_value = &match entity.content.len() {
             0 => continue,
             1 => match entity.content.values().next() {
                 Some(transfer_media_type) => match transfer_media_type {
-                    TransferMediaType::ApplicationJson(type_definiton) => match type_definiton {
-                        Some(type_definition) => {
-                            format!("{}({}),\n", response_enum_name, type_definition.name)
-                        }
+                    TransferMediaType::ApplicationJson(type_definition) => match type_definition {
+                        Some(type_definition) => EnumValue {
+                            name: response_enum_name,
+                            value_type: type_definition.clone(),
+                        },
 
-                        None => format!("{},\n", response_enum_name),
+                        None => EnumValue {
+                            name: response_enum_name,
+                            value_type: TypeDefinition {
+                                name: "".to_string(),
+                                module: None,
+                            },
+                        },
                     },
-                    TransferMediaType::TextPlain => format!(
-                        "{}({}),\n",
-                        response_enum_name,
-                        oas3_type_to_string(&oas3::spec::SchemaType::String)
-                    ),
+                    TransferMediaType::TextPlain => EnumValue {
+                        name: response_enum_name,
+                        value_type: TypeDefinition {
+                            name: oas3_type_to_string(&oas3::spec::SchemaType::String),
+                            module: None,
+                        },
+                    },
                 },
                 None => {
                     return Err(format!(
@@ -215,19 +253,37 @@ pub fn generate_operation(
                     ))
                 }
             },
-            _ => format!(
-                "{}({}),\n",
-                response_enum_name,
-                name_mapping.name_to_struct_name(
-                    &response_enum_definition_path,
-                    &format!("{}Value", entity.canonical_status_code)
-                ),
-            ),
+            _ => EnumValue {
+                name: response_enum_name,
+                value_type: TypeDefinition {
+                    name: name_mapping.name_to_struct_name(
+                        &response_enum_definition_path,
+                        &format!("{}Value", entity.canonical_status_code),
+                    ),
+                    module: None,
+                },
+            },
         };
+
+        response_enum
+            .values
+            .insert(status_code.to_string(), enum_value.clone());
     }
 
-    response_enum_source_code += "UndefinedResponse(reqwest::Response),\n";
-    response_enum_source_code += "}\n";
+    response_enum.values.insert(
+        "UndefinedResponse".to_string(),
+        EnumValue {
+            name: "UndefinedResponse".to_owned(),
+            value_type: TypeDefinition {
+                name: "reqwest::Response".to_owned(),
+                module: Some(ModuleInfo {
+                    name: "reqwest".to_owned(),
+                    path: String::new(),
+                }),
+            },
+        },
+    );
+    response_enums.push(response_enum);
 
     // Query params
     let query_parameter_code = match generate_query_parameter_code(
@@ -292,11 +348,23 @@ pub fn generate_operation(
         None => String::new(),
     };
 
-    let mut function_parameters = match multi_content_request_body {
-        true => vec!["request_builder: reqwest::RequestBuilder".to_owned()],
+    let mut function_parameters: Vec<FunctionParameter> = match multi_content_request_body {
+        true => vec![FunctionParameter {
+            name: "request_builder".to_owned(),
+            type_name: "reqwest::RequestBuilder".to_owned(),
+            reference: false,
+        }],
         false => vec![
-            "client: &reqwest::Client".to_owned(),
-            "server: &str".to_owned(),
+            FunctionParameter {
+                name: "client".to_owned(),
+                type_name: "reqwest::Client".to_owned(),
+                reference: true,
+            },
+            FunctionParameter {
+                name: "server".to_owned(),
+                type_name: "str".to_owned(),
+                reference: true,
+            },
         ],
     };
 
@@ -317,19 +385,20 @@ pub fn generate_operation(
                                         module_imports.push(module.clone());
                                     }
                                 }
-                                function_parameters.push(format!(
-                                    "{}: {}",
-                                    request_content_variable_name, type_definition.name
-                                ))
+                                function_parameters.push(FunctionParameter {
+                                    name: request_content_variable_name.clone(),
+                                    type_name: type_definition.name.clone(),
+                                    reference: false,
+                                });
                             }
                             None => trace!("Empty request body not added to function params"),
                         }
                     }
-                    TransferMediaType::TextPlain => function_parameters.push(format!(
-                        "{}: &{}",
-                        request_content_variable_name,
-                        oas3_type_to_string(&oas3::spec::SchemaType::String)
-                    )),
+                    TransferMediaType::TextPlain => function_parameters.push(FunctionParameter {
+                        name: request_content_variable_name.clone(),
+                        type_name: oas3_type_to_string(&oas3::spec::SchemaType::String),
+                        reference: true,
+                    }),
                 }
             }
         }
@@ -337,30 +406,27 @@ pub fn generate_operation(
 
     trace!("Generating source code");
     let struct_definition_templates = vec![
-        (&path_parameter_code.parameters_struct).into(),
-        (&query_parameter_code.query_struct).into(),
+        Into::<StructDefinitionTemplate>::into(&path_parameter_code.parameters_struct)
+            .serializable(false),
+        Into::<StructDefinitionTemplate>::into(&query_parameter_code.query_struct)
+            .serializable(false),
     ];
 
-    request_source_code += "\n";
-
-    request_source_code += &multi_request_type_source_code;
-
-    request_source_code += "\n";
-
     if !multi_content_request_body && path_parameter_code.parameters_struct.properties.len() > 0 {
-        function_parameters.push(format!(
-            "{}: &{}",
-            path_parameter_code.parameters_struct_variable_name,
-            path_parameter_code.parameters_struct.name
-        ));
+        function_parameters.push(FunctionParameter {
+            name: path_parameter_code.parameters_struct_variable_name.clone(),
+            type_name: path_parameter_code.parameters_struct.name.clone(),
+            reference: false,
+        });
     }
 
     let query_struct = &query_parameter_code.query_struct;
     if query_struct.properties.len() > 0 {
-        function_parameters.push(format!(
-            "{}: &{}",
-            query_parameter_code.query_struct_variable_name, query_struct.name
-        ));
+        function_parameters.push(FunctionParameter {
+            name: query_parameter_code.query_struct_variable_name,
+            type_name: query_struct.name.clone(),
+            reference: false,
+        });
     }
 
     let function_visibility = match multi_content_request_body {
@@ -368,111 +434,43 @@ pub fn generate_operation(
         false => "pub",
     };
 
-    // Function signature
-    request_source_code += &format!(
-        "{} async fn {}({}) -> Result<{}, reqwest::Error> {{\n",
-        function_visibility,
-        function_name,
-        function_parameters.join(", "),
-        response_enum_name,
-    );
-
-    request_source_code += &query_parameter_code.unroll_query_parameters_code;
-
-    if !multi_content_request_body {
-        match request_body {
-            Some(ref request_body) => {
-                for (_, transfer_media_type) in &request_body.content {
-                    match transfer_media_type {
-                        TransferMediaType::TextPlain => {
-                            request_source_code += &format!(
-                                "let body = {}.to_owned();\n",
-                                request_content_variable_name
-                            )
-                        }
-                        _ => (),
-                    }
-
-                    // TODO: multiple request types not supported
-                    break;
-                }
-            }
-            None => (),
-        }
-    }
-
-    let body_build = match request_body {
+    let request_media_type = match request_body {
         Some(request_body) => {
-            let mut body = String::new();
+            if request_body.content.len() > 1 {
+                warn!("Multiple request body content types not supported yet");
+            }
+            let mut media_type = String::new();
             for (_, transfer_media_type) in request_body.content {
-                match transfer_media_type {
-                    TransferMediaType::ApplicationJson(type_definition) => match type_definition {
-                        Some(_) => body = format!(".json(&{})", request_content_variable_name),
-                        None => body = ".json(&serde_json::json!({}))".to_owned(),
-                    },
-                    TransferMediaType::TextPlain => body = ".body(body)".to_owned(),
-                }
-
+                media_type = match transfer_media_type {
+                    TransferMediaType::ApplicationJson(_) => "application/json".to_owned(),
+                    TransferMediaType::TextPlain => "text/plain".to_owned(),
+                };
                 // TODO: multiple request types not supported
                 break;
             }
-            body
+            media_type
         }
         None => String::new(),
     };
 
-    match request_body_content_types_count {
-        0 | 1 => request_source_code += &format!(
-            "    let response = match client.{}(format!(\"{{server}}{}\", {})).query(&request_query_parameters){}.send().await\n",
-            method.as_str().to_lowercase(),
-            path_parameter_code.path_format_string,
-            path_parameter_code.parameters_struct.properties.iter().map(|(_, parameter)| format!("{}.{}", &path_parameter_code.parameters_struct_variable_name, name_mapping.name_to_property_name(&operation_definition_path, &parameter.name))).collect::<Vec<String>>().join(","),
-            body_build
-        ),
-        _ => request_source_code += &format!(
-            "    let response = match request_builder.query(&request_query_parameters).send().await\n",
-        )
-    };
-
-    request_source_code += "    {\n";
-    request_source_code += "        Ok(response) => response,\n";
-    request_source_code += "        Err(err) => return Err(err),\n";
-    request_source_code += "    };\n";
-
-    if has_response_any_multi_content_type {
-        request_source_code += "let content_type = match response\n";
-        request_source_code += "    .headers()\n";
-        request_source_code += "    .get(\"content-type\") {\n";
-        request_source_code += "    Some(content_type) => match content_type.to_str()\n";
-        request_source_code += "    {\n";
-        request_source_code += "        Ok(content_type) => content_type,\n";
-        request_source_code += "        Err(_) => \"text/plain\",\n";
-        request_source_code += "    },\n";
-        request_source_code += &format!(
-            "    None => return Ok({}::UndefinedResponse(response))\n",
-            response_enum_name
-        );
-        request_source_code += "    };\n\n";
-    }
-
-    request_source_code += "    match response.status().as_u16() {\n";
+    let mut response_parse_code = "    match response.status().as_u16() {\n".to_string();
 
     for (response_key, entity) in &response_entities {
         if entity.content.len() > 1 {
             // Multi content type response
-            request_source_code += &format!("{} => match content_type {{\n", response_key);
+            response_parse_code += &format!("{} => match content_type {{\n", response_key);
 
             for (content_type, transfer_media_type) in &entity.content {
                 match transfer_media_type {
                     TransferMediaType::ApplicationJson(ref type_definition) => {
                         match type_definition {
                             Some(type_definition) => {
-                                request_source_code += &format!(
+                                response_parse_code += &format!(
                                     "\"{}\" => match response.json::<{}>().await {{\n",
                                     content_type, type_definition.name
                                 );
 
-                                request_source_code += &format!(
+                                response_parse_code += &format!(
                                     "Ok({}) => Ok({}::{}({}::{}({}))),\n",
                                     name_mapping.name_to_property_name(
                                         &operation_definition_path,
@@ -497,11 +495,11 @@ pub fn generate_operation(
                                         &type_definition.name
                                     )
                                 );
-                                request_source_code += "Err(parsing_error) => Err(parsing_error)\n";
-                                request_source_code += "}\n"
+                                response_parse_code += "Err(parsing_error) => Err(parsing_error)\n";
+                                response_parse_code += "}\n"
                             }
                             None => {
-                                request_source_code += &format!(
+                                response_parse_code += &format!(
                                     "\"{}\" => Ok({}::{}({}::{})),\n",
                                     content_type,
                                     response_enum_name,
@@ -523,10 +521,10 @@ pub fn generate_operation(
                         }
                     }
                     TransferMediaType::TextPlain => {
-                        request_source_code +=
+                        response_parse_code +=
                             &format!("\"{}\" => match response.text().await {{\n", content_type);
 
-                        request_source_code += &format!(
+                        response_parse_code += &format!(
                             "Ok(response_text) => Ok({}::{}({}::{}(response_text))),\n",
                             response_enum_name,
                             name_mapping.name_to_struct_name(
@@ -543,19 +541,19 @@ pub fn generate_operation(
                                 &TransferMediaType::TextPlain
                             )
                         );
-                        request_source_code += "Err(parsing_error) => Err(parsing_error)\n";
-                        request_source_code += "}\n"
+                        response_parse_code += "Err(parsing_error) => Err(parsing_error)\n";
+                        response_parse_code += "}\n"
                     }
                 }
             }
 
-            request_source_code += &format!(
+            response_parse_code += &format!(
                 "_ => Ok({}::UndefinedResponse(response))\n",
                 response_enum_name
             );
 
             // Close content_type match
-            request_source_code += "}\n"
+            response_parse_code += "}\n"
         } else {
             // Single content type response
             for (_, transfer_media_type) in &entity.content {
@@ -563,12 +561,12 @@ pub fn generate_operation(
                     TransferMediaType::ApplicationJson(ref type_definition) => {
                         match type_definition {
                             Some(type_definition) => {
-                                request_source_code += &format!(
+                                response_parse_code += &format!(
                                     "{} => match response.json::<{}>().await {{\n",
                                     response_key, type_definition.name
                                 );
 
-                                request_source_code += &format!(
+                                response_parse_code += &format!(
                                     "Ok({}) => Ok({}::{}({})),\n",
                                     name_mapping.name_to_property_name(
                                         &operation_definition_path,
@@ -584,11 +582,11 @@ pub fn generate_operation(
                                         &type_definition.name
                                     )
                                 );
-                                request_source_code += "Err(parsing_error) => Err(parsing_error)\n";
-                                request_source_code += "}\n"
+                                response_parse_code += "Err(parsing_error) => Err(parsing_error)\n";
+                                response_parse_code += "}\n"
                             }
                             None => {
-                                request_source_code += &format!(
+                                response_parse_code += &format!(
                                     "{} => Ok({}::{}),\n",
                                     response_key,
                                     response_enum_name,
@@ -601,10 +599,10 @@ pub fn generate_operation(
                         }
                     }
                     TransferMediaType::TextPlain => {
-                        request_source_code +=
+                        response_parse_code +=
                             &format!("{} => match response.text().await {{\n", response_key);
 
-                        request_source_code += &format!(
+                        response_parse_code += &format!(
                             "Ok(response_text) => Ok({}::{}(response_text)),\n",
                             response_enum_name,
                             name_mapping.name_to_struct_name(
@@ -612,41 +610,60 @@ pub fn generate_operation(
                                 &entity.canonical_status_code
                             )
                         );
-                        request_source_code += "Err(parsing_error) => Err(parsing_error)\n";
-                        request_source_code += "}\n"
+                        response_parse_code += "Err(parsing_error) => Err(parsing_error)\n";
+                        response_parse_code += "}\n"
                     }
                 }
             }
         }
     }
 
-    request_source_code += &format!(
+    response_parse_code += &format!(
         "_ => Ok({}::UndefinedResponse(response))\n",
         response_enum_name
     );
 
     // Close match status code
-    request_source_code += "}\n";
-
-    // function
-    request_source_code += "}\n";
+    response_parse_code += "}\n";
 
     let template = HttpRequestTemplate {
-        module_imports: module_imports,
+        module_imports: to_unique_list(&module_imports),
         struct_definitions: struct_definition_templates,
-        enum_definitions: vec![],
+        enum_definitions: response_enums
+            .iter()
+            .map(|enum_def| Into::<EnumDefinitionTemplate>::into(enum_def).serializable(false))
+            .collect(),
         primitive_definitions: vec![],
-        socket_stream_struct_name: String::new(),
         response_type_name: response_enum_name,
+        function_visibility: function_visibility.to_owned(),
         function_name: function_name,
-        function_parameters: vec![],
+        function_parameters: function_parameters,
         path_format_string: path_parameter_code.path_format_string,
-        path_parameter_arguments: String::new(),
+        path_parameter_arguments: path_parameter_code
+            .parameters_struct
+            .properties
+            .keys()
+            .map(|property_name| {
+                format!(
+                    "{}.{}",
+                    path_parameter_code.parameters_struct_variable_name, property_name
+                )
+            })
+            .collect::<Vec<String>>()
+            .join(", "),
+        request_media_type: request_media_type,
+        request_query_parameters_code: query_parameter_code.unroll_query_parameters_code,
+        request_body_content_types_count: request_body_content_types_count,
+        request_content_variable_name: request_content_variable_name,
+        request_method: method.as_str().to_lowercase(),
+        has_response_any_multi_content_type: has_response_any_multi_content_type,
         query_parameters_mutable: query_struct
             .properties
             .iter()
             .any(|(_, param)| !param.required),
         query_parameters: vec![],
+        response_parse_code: response_parse_code,
+        multi_request_type_source_code: multi_request_type_source_code,
     };
 
     template.render().map_err(|err| err.to_string())

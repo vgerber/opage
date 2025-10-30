@@ -19,7 +19,7 @@ pub type {{ primitive_definition.name }} = {{ primitive_definition.type_name | s
 {% endif %}
 pub enum {{ enum_definition.name }} {
     {% for value in enum_definition.values %}
-    {{ value.name }}({{ value.value_type | safe }}),
+    {{ value.name }}{% if value.value_type.len() > 0 %}({{ value.value_type | safe }}){% endif %},
     {% endfor %}
 }
 {% endfor %}
@@ -33,7 +33,7 @@ pub enum {{ enum_definition.name }} {
 {% endif %}
 pub struct {{ struct_definition.name }} {
     {% for property in struct_definition.properties %}
-    {% if property.real_name != property.name %}
+    {% if struct_definition.serializable && property.real_name != property.name %}
     #[serde(alias = "{{ property.real_name | safe }}")]
     {%endif%}
     {% if property.required %}

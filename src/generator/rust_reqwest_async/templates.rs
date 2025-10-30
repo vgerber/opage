@@ -59,6 +59,13 @@ pub struct EnumDefinitionTemplate {
     pub values: Vec<EnumValueTemplate>,
 }
 
+impl EnumDefinitionTemplate {
+    pub fn serializable(mut self, serializable: bool) -> Self {
+        self.serializable = serializable;
+        self
+    }
+}
+
 impl From<&EnumDefinition> for EnumDefinitionTemplate {
     fn from(enum_definition: &EnumDefinition) -> Self {
         EnumDefinitionTemplate {
@@ -112,6 +119,13 @@ pub struct StructDefinitionTemplate {
     pub serializable: bool,
     pub name: String,
     pub properties: Vec<PropertyDefinition>,
+}
+
+impl StructDefinitionTemplate {
+    pub fn serializable(mut self, serializable: bool) -> Self {
+        self.serializable = serializable;
+        self
+    }
 }
 
 impl From<&StructDefinition> for StructDefinitionTemplate {

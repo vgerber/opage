@@ -3,11 +3,55 @@
 
 {% block content %}
 
-pub async fn {{function_name}}(
-    host: &str,
+{{ multi_request_type_source_code | safe }}
+
+{{ function_visibility }} async fn {{function_name}}(
     {% for function_parameter in function_parameters %}
-    {{ function_parameter.name}}: &{{ function_parameter.type_name | safe }},
+    {{ function_parameter.name}}: {% if function_parameter.reference %}&{% endif %}{{ function_parameter.type_name | safe }},
     {% endfor %}
-    ) -> Result<{{socket_stream_struct_name}}, tungstenite::Error> {
+    ) -> Result<{{response_type_name}}, reqwest::Error> {
+
+    {{request_query_parameters_code | safe}}
+    
+    {% if request_media_type == "text/plain" %}
+        let body = content.to_owned();
+    {% endif %}
+    
+    {% if request_body_content_types_count <= 1 %}
+    let response = match client.{{request_method}}(format!("{}{{path_format_string}}", server, {{path_parameter_arguments}}))
+        .query(&request_query_parameters)
+    {% if request_media_type == "application/json" %}
+    {% if request_content_variable_name.len() > 0 %}
+        .json(&{{ request_content_variable_name }})
+    {% else %}
+        .json(&serde_json::json!({}))
+    {% endif %}
+    {% elif request_media_type == "text/plain" %}
+        .body(body)
+    {% endif %}
+        .send().await
+    {% else %}
+    let response = match request_builder.query(&request_query_parameters).send().await
+    {% endif%}
+    
+        {
+            Ok(response) => response,
+            Err(err) => return Err(err),
+        };
+
+    {% if has_response_any_multi_content_type %}
+        let content_type = match response
+            .headers()
+            .get("content-type") {
+            Some(content_type) => match content_type.to_str()
+            {
+                Ok(content_type) => content_type,
+                Err(_) => "text/plain",
+            },
+            None => return Ok({{response_type_name}}::UndefinedResponse(response)),
+        };
+    {% endif %}
+
+    {{ response_parse_code | safe }}
 }
 {% endblock %}
