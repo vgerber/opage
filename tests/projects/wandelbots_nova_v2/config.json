@@ -87,7 +87,8 @@
   "ignore": {
     "paths": [
       "/cells/{cell}/programs/values",
-      "/cells/{cell}/programs/values/{key}"
+      "/cells/{cell}/programs/values/{key}",
+      "/system/configuration"
     ],
     "components": ["Array-Input", "Array-Output", "Array"]
   }
