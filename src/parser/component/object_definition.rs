@@ -6,7 +6,7 @@ use oas3::{
     Spec,
 };
 use types::{
-    EnumDefinition, EnumValue, ModuleInfo, ObjectDefinition, PrimitveDefinition,
+    EnumDefinition, EnumValue, ModuleInfo, ObjectDefinition, PrimitiveDefinition,
     PropertyDefinition, StructDefinition,
 };
 
@@ -109,7 +109,7 @@ pub fn generate_object(
                 Some(name),
                 name_mapping,
             ) {
-                Ok(type_definition) => Ok(ObjectDefinition::Primitive(PrimitveDefinition {
+                Ok(type_definition) => Ok(ObjectDefinition::Primitive(PrimitiveDefinition {
                     name: name.to_owned(),
                     primitive_type: type_definition,
                 })),

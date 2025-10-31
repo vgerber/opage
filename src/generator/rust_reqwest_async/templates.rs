@@ -1,7 +1,7 @@
 use askama::Template;
 
 use crate::parser::component::object_definition::types::{
-    to_unique_list, EnumDefinition, EnumValue, ModuleInfo, PrimitveDefinition, PropertyDefinition,
+    to_unique_list, EnumDefinition, EnumValue, ModuleInfo, PrimitiveDefinition, PropertyDefinition,
     StructDefinition,
 };
 
@@ -10,8 +10,8 @@ pub struct PrimitiveDefinitionTemplate {
     pub type_name: String,
 }
 
-impl From<&PrimitveDefinition> for PrimitiveDefinitionTemplate {
-    fn from(primitive_definition: &PrimitveDefinition) -> Self {
+impl From<&PrimitiveDefinition> for PrimitiveDefinitionTemplate {
+    fn from(primitive_definition: &PrimitiveDefinition) -> Self {
         PrimitiveDefinitionTemplate {
             name: primitive_definition.name.clone(),
             type_name: primitive_definition.primitive_type.name.clone(),
@@ -19,8 +19,8 @@ impl From<&PrimitveDefinition> for PrimitiveDefinitionTemplate {
     }
 }
 
-impl From<&PrimitveDefinition> for BaseTemplate {
-    fn from(primitive_definition: &PrimitveDefinition) -> Self {
+impl From<&PrimitiveDefinition> for BaseTemplate {
+    fn from(primitive_definition: &PrimitiveDefinition) -> Self {
         BaseTemplate {
             struct_definitions: vec![],
             enum_definitions: vec![],

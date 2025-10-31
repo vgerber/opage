@@ -25,7 +25,7 @@ pub struct PropertyDefinition {
 pub enum ObjectDefinition {
     Struct(StructDefinition),
     Enum(EnumDefinition),
-    Primitive(PrimitveDefinition),
+    Primitive(PrimitiveDefinition),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -80,7 +80,7 @@ impl StructDefinition {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct PrimitveDefinition {
+pub struct PrimitiveDefinition {
     pub name: String,
     pub primitive_type: TypeDefinition,
 }
