@@ -1,6 +1,6 @@
 use askama::Template;
 
-use crate::generator::rust_reqwest_async::component::object_definition::types::{
+use crate::parser::component::object_definition::types::{
     to_unique_list, EnumDefinition, EnumValue, ModuleInfo, PrimitveDefinition, PropertyDefinition,
     StructDefinition,
 };

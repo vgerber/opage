@@ -1,8 +1,6 @@
 use opage::{
-    generator::rust_reqwest_async::{
-        component::object_definition::types::ObjectDatabase,
-        path::default_request::generate_operation,
-    },
+    generator::rust_reqwest_async::path::http_request::generate_operation,
+    parser::component::object_definition::types::ObjectDatabase,
     utils::{log::Logger, name_mapping::NameMapping},
 };
 use reqwest::Method;

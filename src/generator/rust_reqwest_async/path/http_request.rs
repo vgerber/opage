@@ -9,20 +9,20 @@ use oas3::{
 
 use crate::{
     generator::rust_reqwest_async::{
-        component::{
-            object_definition::{
-                oas3_type_to_string,
-                types::{
-                    to_unique_list, EnumDefinition, EnumValue, ModuleInfo, ObjectDatabase,
-                    PropertyDefinition, StructDefinition, TypeDefinition,
-                },
-            },
-            type_definition::get_type_from_schema,
-        },
         path::utils::ResponseEntity,
         templates::{
             EnumDefinitionTemplate, PrimitiveDefinitionTemplate, StructDefinitionTemplate,
         },
+    },
+    parser::component::{
+        object_definition::{
+            oas3_type_to_string,
+            types::{
+                to_unique_list, EnumDefinition, EnumValue, ModuleInfo, ObjectDatabase,
+                PropertyDefinition, StructDefinition, TypeDefinition,
+            },
+        },
+        type_definition::get_type_from_schema,
     },
     utils::name_mapping::NameMapping,
 };

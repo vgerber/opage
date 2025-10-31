@@ -1,21 +1,18 @@
 use super::utils::{
     generate_request_body, generate_responses, is_path_parameter, TransferMediaType,
 };
+use crate::generator::rust_reqwest_async::templates::{
+    EnumDefinitionTemplate, PrimitiveDefinitionTemplate, StructDefinitionTemplate,
+};
 use crate::{
-    generator::rust_reqwest_async::{
-        component::{
-            object_definition::{
-                oas3_type_to_string,
-                types::{
-                    ModuleInfo, ObjectDatabase, PropertyDefinition, StructDefinition,
-                    TypeDefinition,
-                },
+    parser::component::{
+        object_definition::{
+            oas3_type_to_string,
+            types::{
+                ModuleInfo, ObjectDatabase, PropertyDefinition, StructDefinition, TypeDefinition,
             },
-            type_definition::get_type_from_schema,
         },
-        templates::{
-            EnumDefinitionTemplate, PrimitiveDefinitionTemplate, StructDefinitionTemplate,
-        },
+        type_definition::get_type_from_schema,
     },
     utils::name_mapping::NameMapping,
 };

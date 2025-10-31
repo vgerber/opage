@@ -8,7 +8,7 @@ use oas3::{
 use reqwest::StatusCode;
 
 use crate::{
-    generator::rust_reqwest_async::component::{
+    parser::component::{
         object_definition::{
             get_object_or_ref_struct_name, is_object_empty,
             types::{ModuleInfo, ObjectDatabase, TypeDefinition},

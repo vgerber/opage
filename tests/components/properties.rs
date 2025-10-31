@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use opage::{generator::rust_reqwest_async::component::generate_components, utils::config::Config};
+use opage::{parser::component::generate_components, utils::config::Config};
 
 #[test]
 fn empty_component() {
