@@ -10,6 +10,19 @@ pub struct PrimitiveDefinitionTemplate {
     pub type_name: String,
 }
 
+fn get_serialization_imports() -> Vec<ModuleInfo> {
+    vec![
+        ModuleInfo {
+            name: "Serialize".to_string(),
+            path: "serde".to_string(),
+        },
+        ModuleInfo {
+            name: "Deserialize".to_string(),
+            path: "serde".to_string(),
+        },
+    ]
+}
+
 impl From<&PrimitiveDefinition> for PrimitiveDefinitionTemplate {
     fn from(primitive_definition: &PrimitiveDefinition) -> Self {
         PrimitiveDefinitionTemplate {
@@ -82,17 +95,18 @@ impl From<&EnumDefinition> for EnumDefinitionTemplate {
 
 impl From<&EnumDefinition> for BaseTemplate {
     fn from(enum_definition: &EnumDefinition) -> Self {
+        let mut module_imports = enum_definition
+            .get_required_modules()
+            .iter()
+            .map(|&module| module.clone())
+            .collect::<Vec<ModuleInfo>>();
+        module_imports.append(&mut get_serialization_imports());
+
         BaseTemplate {
             struct_definitions: vec![],
             enum_definitions: vec![EnumDefinitionTemplate::from(enum_definition)],
             primitive_definitions: vec![],
-            module_imports: to_unique_list(
-                &enum_definition
-                    .get_required_modules()
-                    .iter()
-                    .map(|&module| module.clone())
-                    .collect(),
-            ),
+            module_imports: to_unique_list(&module_imports),
         }
     }
 }
@@ -144,17 +158,18 @@ impl From<&StructDefinition> for StructDefinitionTemplate {
 
 impl From<&StructDefinition> for BaseTemplate {
     fn from(struct_definition: &StructDefinition) -> Self {
+        let mut module_imports = struct_definition
+            .get_required_modules()
+            .iter()
+            .map(|&module| module.clone())
+            .collect::<Vec<ModuleInfo>>();
+        module_imports.append(&mut get_serialization_imports());
+
         BaseTemplate {
             struct_definitions: vec![StructDefinitionTemplate::from(struct_definition)],
             enum_definitions: vec![],
             primitive_definitions: vec![],
-            module_imports: to_unique_list(
-                &struct_definition
-                    .get_required_modules()
-                    .iter()
-                    .map(|&module| module.clone())
-                    .collect(),
-            ),
+            module_imports: to_unique_list(&module_imports),
         }
     }
 }

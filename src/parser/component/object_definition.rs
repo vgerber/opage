@@ -230,16 +230,7 @@ pub fn generate_enum_from_any(
             .name_to_struct_name(&definition_path, name)
             .to_owned(),
         values: HashMap::new(),
-        used_modules: vec![
-            ModuleInfo {
-                name: "Serialize".to_owned(),
-                path: "serde".to_owned(),
-            },
-            ModuleInfo {
-                name: "Deserialize".to_owned(),
-                path: "serde".to_owned(),
-            },
-        ],
+        used_modules: vec![],
     };
     definition_path.push(enum_definition.name.clone());
 
@@ -323,16 +314,7 @@ pub fn generate_enum_from_one_of(
             .name_to_struct_name(&definition_path, name)
             .to_owned(),
         values: HashMap::new(),
-        used_modules: vec![
-            ModuleInfo {
-                name: "Serialize".to_owned(),
-                path: "serde".to_owned(),
-            },
-            ModuleInfo {
-                name: "Deserialize".to_owned(),
-                path: "serde".to_owned(),
-            },
-        ],
+        used_modules: vec![],
     };
     definition_path.push(enum_definition.name.clone());
 
@@ -416,16 +398,7 @@ pub fn generate_struct(
             .name_to_struct_name(&definition_path, name)
             .to_owned(),
         properties: HashMap::new(),
-        used_modules: vec![
-            ModuleInfo {
-                name: "Serialize".to_owned(),
-                path: "serde".to_owned(),
-            },
-            ModuleInfo {
-                name: "Deserialize".to_owned(),
-                path: "serde".to_owned(),
-            },
-        ],
+        used_modules: vec![],
         local_objects: HashMap::new(),
     };
     definition_path.push(struct_definition.name.clone());

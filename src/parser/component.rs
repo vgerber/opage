@@ -4,7 +4,7 @@ use std::{
 };
 
 use askama::Template;
-use log::{error, info, trace};
+use log::{error, info, trace, warn};
 use oas3::Spec;
 use object_definition::{
     generate_object, get_components_base_path, get_object_name,
@@ -80,19 +80,11 @@ pub fn generate_components(spec: &Spec, config: &Config) -> Result<ObjectDatabas
             }
         };
 
-        // if let ObjectDefinition::Primitive(type_definition) = object_definition {
-        //     trace!(
-        //         "Primitive object {} will not be added to database",
-        //         type_definition.name
-        //     );
-        //     continue;
-        // }
-
         let object_name = get_object_name(&object_definition);
 
         match object_database.contains_key(object_name) {
             true => {
-                error!("ObjectDatabase already contains an object {}", object_name);
+                warn!("ObjectDatabase already contains an object {}. This might be caused by cyclic references", object_name);
                 continue;
             }
             _ => {

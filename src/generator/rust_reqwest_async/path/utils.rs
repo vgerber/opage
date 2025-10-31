@@ -282,10 +282,3 @@ pub fn generate_responses(
     }
     Ok(response_entities)
 }
-
-pub fn use_module_to_string(module: &ModuleInfo) -> String {
-    if module.path.is_empty() {
-        return format!("use {};", module.name);
-    }
-    format!("use {}::{};", module.path, module.name)
-}

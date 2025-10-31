@@ -1,7 +1,9 @@
 {# Module imports #}
+{% block dependency_imports %}
 {% for module_import in module_imports %}
 use {{module_import.path}}::{{module_import.name}};
 {% endfor %}
+{% endblock %}
 
 
 {# Primitive definitions #}
