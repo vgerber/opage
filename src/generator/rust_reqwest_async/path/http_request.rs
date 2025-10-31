@@ -430,6 +430,21 @@ pub fn generate_operation(
             .serializable(false),
     ];
 
+    module_imports.extend(
+        path_parameter_code
+            .parameters_struct
+            .get_required_modules()
+            .iter()
+            .map(|&module| module.clone()),
+    );
+    module_imports.extend(
+        query_parameter_code
+            .query_struct
+            .get_required_modules()
+            .iter()
+            .map(|&module| module.clone()),
+    );
+
     if !multi_content_request_body && path_parameter_code.parameters_struct.properties.len() > 0 {
         function_parameters.push(FunctionParameter {
             name: path_parameter_code.parameters_struct_variable_name.clone(),
