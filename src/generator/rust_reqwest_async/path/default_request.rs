@@ -67,7 +67,7 @@ struct HttpRequestTemplate {
     path_parameter_arguments: String,
     request_body_content_types_count: usize,
     request_media_type: String,
-    request_content_variable_name: String,
+    request_content_variable_name: Option<String>,
     request_method: String,
     has_response_any_multi_content_type: bool,
 
@@ -381,13 +381,7 @@ pub fn generate_operation(
         ],
     };
 
-    let request_content_variable_name = match multi_content_request_body {
-        true => String::new(),
-        false => match request_body {
-            Some(_) => name_mapping.name_to_property_name(&operation_definition_path, "content"),
-            None => String::new(),
-        },
-    };
+    let mut request_content_variable_name = None;
 
     if !multi_content_request_body {
         if let Some(request_body) = &request_body {
@@ -396,25 +390,33 @@ pub fn generate_operation(
                     TransferMediaType::ApplicationJson(ref type_definition_opt) => {
                         match type_definition_opt {
                             Some(ref type_definition) => {
+                                let variable_name = name_mapping
+                                    .name_to_property_name(&operation_definition_path, "content");
                                 if let Some(ref module) = type_definition.module {
                                     if !module_imports.contains(module) {
                                         module_imports.push(module.clone());
                                     }
                                 }
                                 function_parameters.push(FunctionParameter {
-                                    name: request_content_variable_name.clone(),
+                                    name: variable_name.clone(),
                                     type_name: type_definition.name.clone(),
                                     reference: false,
                                 });
+                                request_content_variable_name = Some(variable_name);
                             }
                             None => trace!("Empty request body not added to function params"),
                         }
                     }
-                    TransferMediaType::TextPlain => function_parameters.push(FunctionParameter {
-                        name: request_content_variable_name.clone(),
-                        type_name: oas3_type_to_string(&oas3::spec::SchemaType::String),
-                        reference: true,
-                    }),
+                    TransferMediaType::TextPlain => {
+                        let variable_name = name_mapping
+                            .name_to_property_name(&operation_definition_path, "content");
+                        function_parameters.push(FunctionParameter {
+                            name: variable_name.clone(),
+                            type_name: oas3_type_to_string(&oas3::spec::SchemaType::String),
+                            reference: true,
+                        });
+                        request_content_variable_name = Some(variable_name);
+                    }
                 }
             }
         }
@@ -704,7 +706,7 @@ struct MultiRequestTypeFunction {
     function_name: String,
     function_parameters: Vec<FunctionParameter>,
     request_media_type: String,
-    request_content_variable_name: String,
+    request_content_variable_name: Option<String>,
 }
 
 fn generate_multi_request_type_functions(
@@ -747,7 +749,7 @@ fn generate_multi_request_type_functions(
             function_parameters.push(FunctionParameter {
                 name: path_parameter_code.parameters_struct_variable_name.clone(),
                 type_name: path_parameter_code.parameters_struct.name.clone(),
-                reference: true,
+                reference: false,
             });
         }
 
@@ -756,35 +758,42 @@ fn generate_multi_request_type_functions(
             function_parameters.push(FunctionParameter {
                 name: query_parameter_code.query_struct_variable_name.clone(),
                 type_name: query_struct.name.clone(),
-                reference: true,
+                reference: false,
             });
         }
 
-        let request_content_variable_name =
-            name_mapping.name_to_property_name(definition_path, "content");
+        let mut request_content_variable_name = None;
         match transfer_media_type {
             TransferMediaType::ApplicationJson(ref type_definition_opt) => {
                 match type_definition_opt {
                     Some(ref type_definition) => {
+                        let variable_name =
+                            name_mapping.name_to_property_name(definition_path, "content");
                         if let Some(ref module) = type_definition.module {
                             if !module_imports.contains(module) {
                                 module_imports.push(module.clone());
                             }
                         }
                         function_parameters.push(FunctionParameter {
-                            name: request_content_variable_name.clone(),
+                            name: variable_name.clone(),
                             type_name: type_definition.name.clone(),
                             reference: false,
                         });
+                        request_content_variable_name = Some(variable_name);
                     }
                     None => trace!("Empty request body not added to function params"),
                 }
             }
-            TransferMediaType::TextPlain => function_parameters.push(FunctionParameter {
-                name: request_content_variable_name.clone(),
-                type_name: oas3_type_to_string(&oas3::spec::SchemaType::String),
-                reference: true,
-            }),
+            TransferMediaType::TextPlain => {
+                let variable_name = name_mapping.name_to_property_name(definition_path, "content");
+                function_parameters.push(FunctionParameter {
+                    name: variable_name.clone(),
+                    type_name: oas3_type_to_string(&oas3::spec::SchemaType::String),
+                    reference: true,
+                });
+
+                request_content_variable_name = Some(variable_name);
+            }
         }
 
         function_definitions.push(MultiRequestTypeFunction {

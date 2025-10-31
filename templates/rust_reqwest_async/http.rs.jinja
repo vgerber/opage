@@ -16,16 +16,15 @@ pub async fn {{function.function_name}}(
 ) -> Result<{{response_type_name}}, reqwest::Error> {
 
     {% if function.request_media_type == "text/plain" %}
-    let body = {{function.request_content_variable_name}}.to_owned();
+    let body = {{function.request_content_variable_name.as_ref().unwrap()}}.to_owned();
     {% endif %}
 
     let request_builder = client.{{request_method}}(format!("{}{{path_format_string}}", server, {{path_parameter_arguments}}))
     {% if function.request_media_type == "application/json" %}
-    {% if function.request_content_variable_name.len() > 0 %}
-        .json(&{{ function.request_content_variable_name }});
-    {% else %}
-        .json(&serde_json::json!({}));
-    {% endif %}
+    {% match function.request_content_variable_name %}
+    {% when Some(variable_name) %}.json(&{{ variable_name }});
+    {% when None %} .json(&serde_json::json!({}));
+    {% endmatch %}
     {% elif function.request_media_type == "text/plain" %}
         .body(body);
     {% endif %}
@@ -89,7 +88,7 @@ pub async fn {{function.function_name}}(
     {% endif %} {# has_query_parameters #}
 
     {% if request_media_type == "text/plain" && request_body_content_types_count <= 1 %}
-        let body = {{request_content_variable_name}}.to_owned();
+        let body = {{ request_content_variable_name.as_ref().unwrap() }}.to_owned();
     {% endif %}
     
     {% if request_body_content_types_count <= 1 %}
@@ -98,11 +97,10 @@ pub async fn {{function.function_name}}(
         .query(&reqwest_query_parameters)
     {% endif %}
     {% if request_media_type == "application/json" %}
-    {% if request_content_variable_name.len() > 0 %}
-        .json(&{{ request_content_variable_name }})
-    {% else %}
-        .json(&serde_json::json!({}))
-    {% endif %}
+    {% match request_content_variable_name %}
+    {% when Some(variable_name) %}.json(&{{ variable_name }})
+    {% when None %} .json(&serde_json::json!({}))
+    {% endmatch %}
     {% elif request_media_type == "text/plain" %}
         .body(body)
     {% endif %}
