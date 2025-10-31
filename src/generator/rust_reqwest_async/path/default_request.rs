@@ -19,6 +19,7 @@ use crate::{
             },
             type_definition::get_type_from_schema,
         },
+        path::utils::ResponseEntity,
         templates::{
             EnumDefinitionTemplate, PrimitiveDefinitionTemplate, StructDefinitionTemplate,
         },
@@ -54,14 +55,16 @@ struct HttpRequestTemplate {
     struct_definitions: Vec<StructDefinitionTemplate>,
     enum_definitions: Vec<EnumDefinitionTemplate>,
     primitive_definitions: Vec<PrimitiveDefinitionTemplate>,
+    name_mapping: NameMapping,
     // Request
+    operation_definition_path: Vec<String>,
+    response_enum_definition_path: Vec<String>,
     response_type_name: String,
     function_visibility: String,
     function_name: String,
     function_parameters: Vec<FunctionParameter>,
     path_format_string: String,
     path_parameter_arguments: String,
-    request_query_parameters_code: String,
     request_body_content_types_count: usize,
     request_media_type: String,
     request_content_variable_name: String,
@@ -71,8 +74,21 @@ struct HttpRequestTemplate {
     query_parameters_mutable: bool,
     query_parameters: Vec<QueryParameter>,
 
-    response_parse_code: String,
-    multi_request_type_source_code: String,
+    responses: HashMap<String, ResponseEntity>,
+    multi_request_type_functions: Vec<MultiRequestTypeFunction>,
+
+    media_type_enum_name: fn(&Vec<String>, &NameMapping, &TransferMediaType) -> String,
+}
+
+impl HttpRequestTemplate {
+    fn media_type_enum_name(
+        &self,
+        operation_definition_path: &Vec<String>,
+        name_mapping: &NameMapping,
+        transfer_media_type: &TransferMediaType,
+    ) -> String {
+        (self.media_type_enum_name)(operation_definition_path, name_mapping, transfer_media_type)
+    }
 }
 
 pub fn generate_operation(
@@ -329,7 +345,7 @@ pub fn generate_operation(
 
     let multi_content_request_body = request_body_content_types_count > 1;
 
-    let multi_request_type_source_code = match request_body {
+    let multi_request_type_functions = match request_body {
         Some(ref request_entity) => match generate_multi_request_type_functions(
             &operation_definition_path,
             name_mapping,
@@ -337,15 +353,12 @@ pub fn generate_operation(
             &path_parameter_code,
             &mut module_imports,
             &query_parameter_code,
-            &response_enum_name,
-            method,
             request_entity,
         ) {
-            Some(request_code) => request_code,
-            None => String::new(),
+            functions => Some(functions),
         },
 
-        None => String::new(),
+        None => None,
     };
 
     let mut function_parameters: Vec<FunctionParameter> = match multi_content_request_body {
@@ -370,7 +383,10 @@ pub fn generate_operation(
 
     let request_content_variable_name = match multi_content_request_body {
         true => String::new(),
-        false => name_mapping.name_to_property_name(&operation_definition_path, "content"),
+        false => match request_body {
+            Some(_) => name_mapping.name_to_property_name(&operation_definition_path, "content"),
+            None => String::new(),
+        },
     };
 
     if !multi_content_request_body {
@@ -423,7 +439,7 @@ pub fn generate_operation(
     let query_struct = &query_parameter_code.query_struct;
     if query_struct.properties.len() > 0 {
         function_parameters.push(FunctionParameter {
-            name: query_parameter_code.query_struct_variable_name,
+            name: query_parameter_code.query_struct_variable_name.clone(),
             type_name: query_struct.name.clone(),
             reference: false,
         });
@@ -453,179 +469,6 @@ pub fn generate_operation(
         None => String::new(),
     };
 
-    let mut response_parse_code = "    match response.status().as_u16() {\n".to_string();
-
-    for (response_key, entity) in &response_entities {
-        if entity.content.len() > 1 {
-            // Multi content type response
-            response_parse_code += &format!("{} => match content_type {{\n", response_key);
-
-            for (content_type, transfer_media_type) in &entity.content {
-                match transfer_media_type {
-                    TransferMediaType::ApplicationJson(ref type_definition) => {
-                        match type_definition {
-                            Some(type_definition) => {
-                                response_parse_code += &format!(
-                                    "\"{}\" => match response.json::<{}>().await {{\n",
-                                    content_type, type_definition.name
-                                );
-
-                                response_parse_code += &format!(
-                                    "Ok({}) => Ok({}::{}({}::{}({}))),\n",
-                                    name_mapping.name_to_property_name(
-                                        &operation_definition_path,
-                                        &type_definition.name
-                                    ),
-                                    response_enum_name,
-                                    name_mapping.name_to_struct_name(
-                                        &operation_definition_path,
-                                        &entity.canonical_status_code
-                                    ),
-                                    name_mapping.name_to_struct_name(
-                                        &response_enum_definition_path,
-                                        &format!("{}Value", &entity.canonical_status_code)
-                                    ),
-                                    media_type_enum_name(
-                                        &response_enum_definition_path,
-                                        &name_mapping,
-                                        &TransferMediaType::ApplicationJson(None)
-                                    ),
-                                    name_mapping.name_to_property_name(
-                                        &operation_definition_path,
-                                        &type_definition.name
-                                    )
-                                );
-                                response_parse_code += "Err(parsing_error) => Err(parsing_error)\n";
-                                response_parse_code += "}\n"
-                            }
-                            None => {
-                                response_parse_code += &format!(
-                                    "\"{}\" => Ok({}::{}({}::{})),\n",
-                                    content_type,
-                                    response_enum_name,
-                                    name_mapping.name_to_struct_name(
-                                        &operation_definition_path,
-                                        &entity.canonical_status_code
-                                    ),
-                                    name_mapping.name_to_struct_name(
-                                        &response_enum_definition_path,
-                                        &format!("{}Value", &entity.canonical_status_code)
-                                    ),
-                                    media_type_enum_name(
-                                        &response_enum_definition_path,
-                                        &name_mapping,
-                                        &TransferMediaType::ApplicationJson(None)
-                                    )
-                                );
-                            }
-                        }
-                    }
-                    TransferMediaType::TextPlain => {
-                        response_parse_code +=
-                            &format!("\"{}\" => match response.text().await {{\n", content_type);
-
-                        response_parse_code += &format!(
-                            "Ok(response_text) => Ok({}::{}({}::{}(response_text))),\n",
-                            response_enum_name,
-                            name_mapping.name_to_struct_name(
-                                &operation_definition_path,
-                                &entity.canonical_status_code
-                            ),
-                            name_mapping.name_to_struct_name(
-                                &response_enum_definition_path,
-                                &format!("{}Value", &entity.canonical_status_code)
-                            ),
-                            media_type_enum_name(
-                                &response_enum_definition_path,
-                                &name_mapping,
-                                &TransferMediaType::TextPlain
-                            )
-                        );
-                        response_parse_code += "Err(parsing_error) => Err(parsing_error)\n";
-                        response_parse_code += "}\n"
-                    }
-                }
-            }
-
-            response_parse_code += &format!(
-                "_ => Ok({}::UndefinedResponse(response))\n",
-                response_enum_name
-            );
-
-            // Close content_type match
-            response_parse_code += "}\n"
-        } else {
-            // Single content type response
-            for (_, transfer_media_type) in &entity.content {
-                match transfer_media_type {
-                    TransferMediaType::ApplicationJson(ref type_definition) => {
-                        match type_definition {
-                            Some(type_definition) => {
-                                response_parse_code += &format!(
-                                    "{} => match response.json::<{}>().await {{\n",
-                                    response_key, type_definition.name
-                                );
-
-                                response_parse_code += &format!(
-                                    "Ok({}) => Ok({}::{}({})),\n",
-                                    name_mapping.name_to_property_name(
-                                        &operation_definition_path,
-                                        &type_definition.name
-                                    ),
-                                    response_enum_name,
-                                    name_mapping.name_to_struct_name(
-                                        &operation_definition_path,
-                                        &entity.canonical_status_code
-                                    ),
-                                    name_mapping.name_to_property_name(
-                                        &operation_definition_path,
-                                        &type_definition.name
-                                    )
-                                );
-                                response_parse_code += "Err(parsing_error) => Err(parsing_error)\n";
-                                response_parse_code += "}\n"
-                            }
-                            None => {
-                                response_parse_code += &format!(
-                                    "{} => Ok({}::{}),\n",
-                                    response_key,
-                                    response_enum_name,
-                                    name_mapping.name_to_struct_name(
-                                        &operation_definition_path,
-                                        &entity.canonical_status_code
-                                    )
-                                );
-                            }
-                        }
-                    }
-                    TransferMediaType::TextPlain => {
-                        response_parse_code +=
-                            &format!("{} => match response.text().await {{\n", response_key);
-
-                        response_parse_code += &format!(
-                            "Ok(response_text) => Ok({}::{}(response_text)),\n",
-                            response_enum_name,
-                            name_mapping.name_to_struct_name(
-                                &operation_definition_path,
-                                &entity.canonical_status_code
-                            )
-                        );
-                        response_parse_code += "Err(parsing_error) => Err(parsing_error)\n";
-                        response_parse_code += "}\n"
-                    }
-                }
-            }
-        }
-    }
-
-    response_parse_code += &format!(
-        "_ => Ok({}::UndefinedResponse(response))\n",
-        response_enum_name
-    );
-
-    // Close match status code
-    response_parse_code += "}\n";
-
     let template = HttpRequestTemplate {
         module_imports: to_unique_list(&module_imports),
         struct_definitions: struct_definition_templates,
@@ -652,7 +495,6 @@ pub fn generate_operation(
             .collect::<Vec<String>>()
             .join(", "),
         request_media_type: request_media_type,
-        request_query_parameters_code: query_parameter_code.unroll_query_parameters_code,
         request_body_content_types_count: request_body_content_types_count,
         request_content_variable_name: request_content_variable_name,
         request_method: method.as_str().to_lowercase(),
@@ -660,10 +502,27 @@ pub fn generate_operation(
         query_parameters_mutable: query_struct
             .properties
             .iter()
-            .any(|(_, param)| !param.required),
-        query_parameters: vec![],
-        response_parse_code: response_parse_code,
-        multi_request_type_source_code: multi_request_type_source_code,
+            .filter(|(_, property)| !property.required || property.type_name.starts_with("Vec<"))
+            .collect::<Vec<(&String, &PropertyDefinition)>>()
+            .len()
+            > 0,
+        query_parameters: query_struct
+            .properties
+            .iter()
+            .map(|(_, property)| QueryParameter {
+                real_name: property.real_name.clone(),
+                name: property.name.clone(),
+                struct_name: query_parameter_code.query_struct_variable_name.clone(),
+                is_required: property.required,
+                is_array: property.type_name.starts_with("Vec<"),
+            })
+            .collect(),
+        responses: response_entities,
+        multi_request_type_functions: multi_request_type_functions.unwrap_or(vec![]),
+        media_type_enum_name: media_type_enum_name,
+        name_mapping: name_mapping.clone(),
+        operation_definition_path: operation_definition_path.clone(),
+        response_enum_definition_path: response_enum_definition_path.clone(),
     };
 
     template.render().map_err(|err| err.to_string())
@@ -758,7 +617,6 @@ fn generate_path_parameter_code(
 struct QueryParametersCode {
     pub query_struct: StructDefinition,
     pub query_struct_variable_name: String,
-    pub unroll_query_parameters_code: String,
 }
 
 fn generate_query_parameter_code(
@@ -836,74 +694,17 @@ fn generate_query_parameter_code(
         };
     }
 
-    let mut unroll_query_parameters_code = String::new();
-    unroll_query_parameters_code += &format!(
-        "let {} request_query_parameters: Vec<(&str, String)> = vec![{}];\n",
-        match query_struct
-            .properties
-            .iter()
-            .filter(|(_, property)| !property.required || property.type_name.starts_with("Vec<"))
-            .collect::<Vec<(&String, &PropertyDefinition)>>()
-            .len()
-        {
-            0 => "",
-            _ => "mut",
-        },
-        query_struct
-            .properties
-            .iter()
-            .filter(|(_, property)| property.required && !property.type_name.starts_with("Vec<"))
-            .map(|(_, property)| format!(
-                "(\"{}\",{}.{}.to_string())",
-                property.real_name, query_struct_variable_name, property.name
-            ))
-            .collect::<Vec<String>>()
-            .join(",")
-    );
-
-    query_struct
-        .properties
-        .values()
-        .filter(|&property| property.required && property.type_name.starts_with("Vec<"))
-        .for_each(|vector_property|
-    {
-        unroll_query_parameters_code += &format!(
-                "{}.{}.iter().for_each(|query_parameter_item| request_query_parameters.push((\"{}\", query_parameter_item.to_string())));\n",
-                &query_struct_variable_name,
-                name_mapping.name_to_property_name(&definition_path, &vector_property.name),
-                vector_property.real_name
-            );
-    });
-
-    for optional_property in query_struct
-        .properties
-        .values()
-        .filter(|&property| !property.required)
-        .collect::<Vec<&PropertyDefinition>>()
-    {
-        unroll_query_parameters_code += &format!(
-            "if let Some(ref query_parameter) = {}.{} {{\n",
-            query_struct_variable_name, optional_property.name
-        );
-        if optional_property.type_name.starts_with("Vec<") {
-            unroll_query_parameters_code += &format!(
-                "query_parameter.iter().for_each(|query_parameter_item| request_query_parameters.push((\"{}\", query_parameter_item.to_string())));\n",
-                optional_property.real_name
-            );
-        } else {
-            unroll_query_parameters_code += &format!(
-                "request_query_parameters.push((\"{}\", query_parameter.to_string()));\n",
-                optional_property.real_name
-            );
-        }
-        unroll_query_parameters_code += "}\n"
-    }
-
     Ok(QueryParametersCode {
         query_struct_variable_name,
         query_struct,
-        unroll_query_parameters_code,
     })
+}
+
+struct MultiRequestTypeFunction {
+    function_name: String,
+    function_parameters: Vec<FunctionParameter>,
+    request_media_type: String,
+    request_content_variable_name: String,
 }
 
 fn generate_multi_request_type_functions(
@@ -913,15 +714,12 @@ fn generate_multi_request_type_functions(
     path_parameter_code: &PathParameterCode,
     module_imports: &mut Vec<ModuleInfo>,
     query_parameter_code: &QueryParametersCode,
-    response_enum_name: &str,
-    method: &reqwest::Method,
     request_entity: &RequestEntity,
-) -> Option<String> {
+) -> Vec<MultiRequestTypeFunction> {
+    let mut function_definitions: Vec<MultiRequestTypeFunction> = vec![];
     if request_entity.content.len() < 2 {
-        return None;
+        return function_definitions;
     }
-
-    let mut request_source_code = String::new();
 
     for (_, transfer_media_type) in &request_entity.content {
         let content_function_name = name_mapping.name_to_property_name(
@@ -932,25 +730,34 @@ fn generate_multi_request_type_functions(
                 media_type_enum_name(&definition_path, name_mapping, &transfer_media_type)
             ),
         );
-        let mut function_parameters = vec![
-            "client: &reqwest::Client".to_owned(),
-            "server: &str".to_owned(),
+        let mut function_parameters: Vec<FunctionParameter> = vec![
+            FunctionParameter {
+                name: "client".to_owned(),
+                type_name: "reqwest::Client".to_owned(),
+                reference: true,
+            },
+            FunctionParameter {
+                name: "server".to_owned(),
+                type_name: "str".to_owned(),
+                reference: true,
+            },
         ];
 
         if path_parameter_code.parameters_struct.properties.len() > 0 {
-            function_parameters.push(format!(
-                "{}: &{}",
-                path_parameter_code.parameters_struct_variable_name,
-                path_parameter_code.parameters_struct.name
-            ));
+            function_parameters.push(FunctionParameter {
+                name: path_parameter_code.parameters_struct_variable_name.clone(),
+                type_name: path_parameter_code.parameters_struct.name.clone(),
+                reference: true,
+            });
         }
 
         let query_struct = &query_parameter_code.query_struct;
         if query_struct.properties.len() > 0 {
-            function_parameters.push(format!(
-                "{}: &{}",
-                query_parameter_code.query_struct_variable_name, query_struct.name
-            ));
+            function_parameters.push(FunctionParameter {
+                name: query_parameter_code.query_struct_variable_name.clone(),
+                type_name: query_struct.name.clone(),
+                reference: true,
+            });
         }
 
         let request_content_variable_name =
@@ -964,81 +771,32 @@ fn generate_multi_request_type_functions(
                                 module_imports.push(module.clone());
                             }
                         }
-                        function_parameters.push(format!(
-                            "{}: {}",
-                            request_content_variable_name, type_definition.name
-                        ))
+                        function_parameters.push(FunctionParameter {
+                            name: request_content_variable_name.clone(),
+                            type_name: type_definition.name.clone(),
+                            reference: false,
+                        });
                     }
                     None => trace!("Empty request body not added to function params"),
                 }
             }
-            TransferMediaType::TextPlain => function_parameters.push(format!(
-                "{}: &{}",
-                request_content_variable_name,
-                oas3_type_to_string(&oas3::spec::SchemaType::String)
-            )),
+            TransferMediaType::TextPlain => function_parameters.push(FunctionParameter {
+                name: request_content_variable_name.clone(),
+                type_name: oas3_type_to_string(&oas3::spec::SchemaType::String),
+                reference: true,
+            }),
         }
 
-        request_source_code += &format!(
-            "pub async fn {}({}) -> Result<{}, reqwest::Error> {{\n",
-            content_function_name,
-            function_parameters.join(", "),
-            response_enum_name,
-        );
-
-        // PRE request processing
-        match transfer_media_type {
-            TransferMediaType::TextPlain => {
-                request_source_code +=
-                    &format!("let body = {}.to_owned();\n", request_content_variable_name)
-            }
-            _ => (),
-        }
-
-        // Request attach
-        let request_body = match transfer_media_type {
-            TransferMediaType::ApplicationJson(type_definition) => match type_definition {
-                Some(_) => {
-                    format!(".json(&{})", request_content_variable_name)
-                }
-                None => ".json(&serde_json::json!({}))".to_owned(),
+        function_definitions.push(MultiRequestTypeFunction {
+            function_name: content_function_name,
+            function_parameters: function_parameters,
+            request_content_variable_name: request_content_variable_name,
+            request_media_type: match transfer_media_type {
+                TransferMediaType::ApplicationJson(_) => "application/json".to_owned(),
+                TransferMediaType::TextPlain => "text/plain".to_owned(),
             },
-            TransferMediaType::TextPlain => ".body(body)".to_owned(),
-        };
-
-        request_source_code += &format!(
-            "let request_builder = client.{}(format!(\"{{server}}{}\", {})){};\n",
-            method.as_str().to_lowercase(),
-            path_parameter_code.path_format_string,
-            path_parameter_code
-                .parameters_struct
-                .properties
-                .iter()
-                .map(|(_, parameter)| format!(
-                    "{}.{}",
-                    path_parameter_code.parameters_struct_variable_name,
-                    name_mapping.name_to_property_name(&definition_path, &parameter.name)
-                ))
-                .collect::<Vec<String>>()
-                .join(","),
-            request_body
-        );
-
-        let request_function_call_parameters = match query_struct.properties.len() {
-            0 => vec!["request_builder".to_owned()],
-            _ => vec![
-                "request_builder".to_owned(),
-                query_parameter_code.query_struct_variable_name.clone(),
-            ],
-        };
-
-        request_source_code += &format!(
-            "{}({}).await",
-            function_name,
-            request_function_call_parameters.join(",")
-        );
-        request_source_code += "}\n";
+        });
     }
 
-    Some(request_source_code)
+    function_definitions
 }

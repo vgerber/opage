@@ -1,25 +1,102 @@
 {% extends "rust_reqwest_async/base.rs.jinja" %}
 
 
+
+
 {% block content %}
 
-{{ multi_request_type_source_code | safe }}
+{% let has_query_parameters = query_parameters.len() > 0 %}
 
+{# Functions exposed if request defines multiple request types #}
+{% for function in multi_request_type_functions %}
+pub async fn {{function.function_name}}(
+    {% for function_parameter in function.function_parameters %}
+    {{ function_parameter.name}}: {% if function_parameter.reference %}&{% endif %}{{ function_parameter.type_name | safe }},
+    {% endfor %}
+) -> Result<{{response_type_name}}, reqwest::Error> {
+
+    {% if function.request_media_type == "text/plain" %}
+    let body = {{function.request_content_variable_name}}.to_owned();
+    {% endif %}
+
+    let request_builder = client.{{request_method}}(format!("{}{{path_format_string}}", server, {{path_parameter_arguments}}))
+    {% if function.request_media_type == "application/json" %}
+    {% if function.request_content_variable_name.len() > 0 %}
+        .json(&{{ function.request_content_variable_name }});
+    {% else %}
+        .json(&serde_json::json!({}));
+    {% endif %}
+    {% elif function.request_media_type == "text/plain" %}
+        .body(body);
+    {% endif %}
+
+    {{function_name}}(
+        request_builder,
+        {% if has_query_parameters %}
+        {{ query_parameters[0].struct_name }},
+        {% endif %}
+    ).await
+}
+{% endfor %}
+
+{# Main request function #}
 {{ function_visibility }} async fn {{function_name}}(
     {% for function_parameter in function_parameters %}
     {{ function_parameter.name}}: {% if function_parameter.reference %}&{% endif %}{{ function_parameter.type_name | safe }},
     {% endfor %}
     ) -> Result<{{response_type_name}}, reqwest::Error> {
 
-    {{request_query_parameters_code | safe}}
     
-    {% if request_media_type == "text/plain" %}
-        let body = content.to_owned();
+    {% if has_query_parameters %}
+    
+
+    {# Query Parameters Mutability #}
+    {% let query_parameters_mutable_modifier %}
+    {% if query_parameters_mutable %}
+    {% let query_parameters_mutable_modifier = "mut" %}
+    {% else %}
+    {% let query_parameters_mutable_modifier = "" %}
+    {% endif %}
+
+    // Required Query Parameters
+    let {{ query_parameters_mutable_modifier }} reqwest_query_parameters: Vec<(&str, String)> = vec![
+    {% for query_parameter in query_parameters if query_parameter.is_required && !query_parameter.is_array %}
+        ("{{ query_parameter.real_name }}", {{ query_parameter.struct_name }}.{{ query_parameter.name }}.to_string()),
+    {% endfor %}
+    ];
+
+    
+    {% for optional_query_parameter in query_parameters if !optional_query_parameter.is_required %}
+    {% if loop.first %}
+    // Optional Query Parameters
+    {% endif %}
+    if let Some(ref query_parameter) = {{ optional_query_parameter.struct_name }}.{{ optional_query_parameter.name }} {
+        {% if optional_query_parameter.is_array %}
+        query_parameter.iter().for_each(|query_parameter_item| reqwest_query_parameters.push(("{{ optional_query_parameter.real_name }}", query_parameter_item.to_string())));
+        {% else %}
+        reqwest_query_parameters.push(("{{ optional_query_parameter.real_name }}", query_parameter.to_string()));
+        {% endif %}
+    }
+    {% endfor %}
+
+    
+    {% for array_query_parameter in query_parameters if array_query_parameter.is_array && array_query_parameter.is_required %}
+    {% if loop.first %}
+    // Required Array Query Parameters
+    {% endif %}
+    {{ array_query_parameter.struct_name }}.{{ array_query_parameter.name }}.iter().for_each(|query_parameter_item| reqwest_query_parameters.push(("{{ array_query_parameter.real_name }}", query_parameter_item.to_string())));
+    {% endfor %}
+    {% endif %} {# has_query_parameters #}
+
+    {% if request_media_type == "text/plain" && request_body_content_types_count <= 1 %}
+        let body = {{request_content_variable_name}}.to_owned();
     {% endif %}
     
     {% if request_body_content_types_count <= 1 %}
     let response = match client.{{request_method}}(format!("{}{{path_format_string}}", server, {{path_parameter_arguments}}))
-        .query(&request_query_parameters)
+    {% if has_query_parameters %}    
+        .query(&reqwest_query_parameters)
+    {% endif %}
     {% if request_media_type == "application/json" %}
     {% if request_content_variable_name.len() > 0 %}
         .json(&{{ request_content_variable_name }})
@@ -31,27 +108,126 @@
     {% endif %}
         .send().await
     {% else %}
-    let response = match request_builder.query(&request_query_parameters).send().await
-    {% endif%}
-    
-        {
-            Ok(response) => response,
-            Err(err) => return Err(err),
-        };
+    let response = match request_builder.send().await
+    {% endif %}
+    {
+        Ok(response) => response,
+        Err(err) => return Err(err),
+    };
 
     {% if has_response_any_multi_content_type %}
-        let content_type = match response
-            .headers()
-            .get("content-type") {
-            Some(content_type) => match content_type.to_str()
-            {
-                Ok(content_type) => content_type,
-                Err(_) => "text/plain",
-            },
-            None => return Ok({{response_type_name}}::UndefinedResponse(response)),
-        };
+    let content_type = match response
+        .headers()
+        .get("content-type") {
+        Some(content_type) => match content_type.to_str()
+        {
+            Ok(content_type) => content_type,
+            Err(_) => "text/plain",
+        },
+        None => return Ok({{response_type_name}}::UndefinedResponse(response)),
+    };
     {% endif %}
 
-    {{ response_parse_code | safe }}
+
+    match response.status().as_u16() {
+        {% for (response_key, response_entity) in responses %}
+        {% let multi_content_type = response_entity.content.len() > 1 %}
+        {% if multi_content_type %}
+        {{response_key}} => match content_type {
+        {% endif %}
+        {% for (content_type, transfer_media_type) in response_entity.content %}
+            {% if multi_content_type %}
+            "{{ content_type }}" =>
+            {% else %}
+            {{response_key}} => 
+            {% endif %}
+            {% match transfer_media_type %}
+                {% when TransferMediaType::ApplicationJson(type_definition) %}
+                    {% match type_definition %}
+                        {% when Some(type_definition) %}
+                        match response.json::<{{ type_definition.name | safe }}>().await {
+                                Ok({{name_mapping.name_to_property_name(
+                                                        &operation_definition_path,
+                                                        &type_definition.name
+                                                    )}}
+                                ) => Ok({{response_type_name}}::{{name_mapping.name_to_struct_name(
+                                                        &operation_definition_path,
+                                                        &response_entity.canonical_status_code
+                                                    )}}
+                                                    {% if multi_content_type %}
+                                                    ({{name_mapping.name_to_struct_name(
+                                                        &response_enum_definition_path,
+                                                        &format!("{}Value", &response_entity.canonical_status_code)
+                                                    )}}::{{media_type_enum_name(
+                                                        &response_enum_definition_path,
+                                                        &name_mapping,
+                                                        &TransferMediaType::ApplicationJson(None)
+                                                    )}}
+                                                    {% endif %}
+                                                    ({{name_mapping.name_to_property_name(
+                                                        &operation_definition_path,
+                                                        &type_definition.name
+                                                    )}})
+                                                    {% if multi_content_type %}
+                                                    )
+                                                    {% endif %}
+                                        ),
+                                Err(parsing_error) => Err(parsing_error)
+                            }
+                        {% endwhen %}
+                        {% when None %}
+                        Ok({{response_type_name}}::{{name_mapping.name_to_struct_name(
+                                                        &operation_definition_path,
+                                                        &response_entity.canonical_status_code
+                                                    )}}
+                                                    {% if multi_content_type %}
+                                                    ({{name_mapping.name_to_struct_name(
+                                                        &response_enum_definition_path,
+                                                        &format!("{}Value", &response_entity.canonical_status_code)
+                                                    )}}::{{media_type_enum_name(
+                                                        &response_enum_definition_path,
+                                                        &name_mapping,
+                                                        &TransferMediaType::ApplicationJson(None)
+                                                    )}}
+                                                    )
+                                                    {% endif %}
+                                                ),
+                        {% endwhen %}
+                    {% endmatch %}
+                {% endwhen %}
+                {% when TransferMediaType::TextPlain %}
+                    match response.text().await {
+                        Ok(response_text) => Ok({{response_type_name}}::{{name_mapping.name_to_struct_name(
+                                    &operation_definition_path,
+                                    &response_entity.canonical_status_code
+                                )}}
+                                {% if multi_content_type %}
+                                ({{name_mapping.name_to_struct_name(
+                                    &response_enum_definition_path,
+                                    &format!("{}Value", &response_entity.canonical_status_code)
+                                )}}::{{media_type_enum_name(
+                                    &response_enum_definition_path,
+                                    &name_mapping,
+                                    &TransferMediaType::TextPlain
+                                )}}
+                                {% endif %}
+                                (response_text)
+                                {% if multi_content_type %}
+                                )
+                                {% endif %}
+                                ),
+                        Err(parsing_error) => Err(parsing_error)
+                    }
+                {% endwhen %}
+            {% endmatch %}
+        {% endfor %}
+        {% if multi_content_type %}
+            _ => Ok({{response_type_name}}::UndefinedResponse(response)),
+        }
+        {% endif %}
+        {% endfor %}
+        _ => Ok({{response_type_name}}::UndefinedResponse(response)),
+        
+    }
 }
 {% endblock %}
