@@ -73,6 +73,7 @@ impl StructDefinition {
                 .properties
                 .iter()
                 .filter_map(|(_, property)| property.module.as_ref())
+                .filter(|&module| module.name != self.name) // Prevent self-reference
                 .collect::<Vec<&ModuleInfo>>(),
         );
         required_modules
