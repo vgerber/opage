@@ -47,4 +47,9 @@ fn self_ref_component() {
         Vec::<ModuleInfo>::new(),
         configuration_resource.used_modules
     );
+
+    assert_eq!(
+        Vec::<&ModuleInfo>::new(),
+        configuration_resource.get_required_modules()
+    );
 }
