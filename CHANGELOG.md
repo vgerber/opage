@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/vgerber/opage/compare/v1.0.0...v1.0.1) (2025-11-01)
+
+
+### Bug Fixes
+
+* Fixed dependencies overwritten by semverbot ([#5](https://github.com/vgerber/opage/issues/5)) ([8bff6bb](https://github.com/vgerber/opage/commit/8bff6bbdb6c2d35ac8492b5a0c2f1376adf1efee))
+
 # 1.0.0 (2025-11-01)
 
 
