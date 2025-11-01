@@ -500,13 +500,12 @@ pub fn generate_operation(
         function_parameters: function_parameters,
         path_format_string: path_parameter_code.path_format_string,
         path_parameter_arguments: path_parameter_code
-            .parameters_struct
-            .properties
-            .keys()
-            .map(|property_name| {
+            .path_format_arguments
+            .iter()
+            .map(|property| {
                 format!(
                     "{}.{}",
-                    path_parameter_code.parameters_struct_variable_name, property_name
+                    path_parameter_code.parameters_struct_variable_name, property.name
                 )
             })
             .collect::<Vec<String>>()
@@ -561,6 +560,7 @@ struct PathParameterCode {
     pub parameters_struct_variable_name: String,
     pub parameters_struct: StructDefinition,
     pub path_format_string: String,
+    pub path_format_arguments: Vec<PropertyDefinition>,
 }
 
 fn generate_path_parameter_code(
@@ -574,6 +574,9 @@ fn generate_path_parameter_code(
         &definition_path,
         &format!("{}PathParameters", function_name),
     );
+
+    let parameters_struct_variable_name =
+        name_mapping.name_to_property_name(definition_path, "path_parameters");
 
     let mut path_parameters_definition_path = definition_path.clone();
     path_parameters_definition_path.push(path_parameters_struct_name.clone());
@@ -624,10 +627,10 @@ fn generate_path_parameter_code(
         .join("/");
 
     Ok(PathParameterCode {
-        parameters_struct_variable_name: name_mapping
-            .name_to_property_name(definition_path, "path_parameters"),
+        parameters_struct_variable_name,
         parameters_struct: path_struct_definition,
         path_format_string: path_format_string,
+        path_format_arguments: path_parameters_ordered,
     })
 }
 

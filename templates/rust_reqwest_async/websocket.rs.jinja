@@ -34,7 +34,7 @@ impl {{ socket_stream_struct_name }} {
 
         let response_object = match result.get("result") {
             Some(response_object) => response_object,
-            None => return Err("No result in message".to_string()),
+            None => return Err(format!("No result in message: {}", response_text)),
         };
 
         match serde_json::from_value::<{{response_type_name}}>(response_object.clone()) {
@@ -48,7 +48,7 @@ impl {{ socket_stream_struct_name }} {
 pub async fn {{function_name}}(
     host: &str,
     {% for function_parameter in function_parameters %}
-    {{ function_parameter.name}}: &{{ function_parameter.type_name | safe }},
+    {{ function_parameter.name}}: {% if function_parameter.reference %}&{% endif %}{{ function_parameter.type_name | safe }},
     {% endfor %}
     ) -> Result<{{socket_stream_struct_name}}, tungstenite::Error> {
 

@@ -37,6 +37,7 @@ struct QueryParameter {
 struct FunctionParameter {
     name: String,
     type_name: String,
+    reference: bool,
 }
 
 #[derive(Template)]
@@ -175,6 +176,7 @@ pub fn generate_operation(
             name: name_mapping
                 .name_to_property_name(&operation_definition_path, &path_struct_definition.name),
             type_name: path_struct_definition.name.clone(),
+            reference: false,
         });
     }
 
@@ -301,6 +303,7 @@ pub fn generate_operation(
             name: name_mapping
                 .name_to_property_name(&operation_definition_path, &query_struct.name),
             type_name: query_struct.name.clone(),
+            reference: false,
         });
         struct_definitions.push(&query_struct);
     }
@@ -308,6 +311,7 @@ pub fn generate_operation(
     function_parameters.push(FunctionParameter {
         name: "additional_headers".to_owned(),
         type_name: "Option<Vec<(String, String)>>".to_owned(),
+        reference: true,
     });
 
     // Request Body
@@ -353,6 +357,7 @@ pub fn generate_operation(
                                 &type_definition.name,
                             ),
                             type_name: type_definition.name.clone(),
+                            reference: true,
                         });
                     }
                     None => (),
@@ -360,6 +365,7 @@ pub fn generate_operation(
                 TransferMediaType::TextPlain => function_parameters.push(FunctionParameter {
                     name: "request_string".to_owned(),
                     type_name: oas3_type_to_string(&oas3::spec::SchemaType::String),
+                    reference: true,
                 }),
             }
             break;
