@@ -1,4 +1,5 @@
 pub mod cargo;
-pub mod component;
+pub mod objects;
 pub mod path;
 pub mod paths;
+pub mod templates;

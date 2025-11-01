@@ -1,0 +1,152 @@
+{% extends "rust_reqwest_async/base.rs.jinja" %}
+
+
+{% block content %}
+
+pub struct {{ socket_stream_struct_name }} {
+    socket: WebSocket<MaybeTlsStream<TcpStream>>,
+}
+
+impl {{ socket_stream_struct_name }} {
+    pub fn from(socket: WebSocket<MaybeTlsStream<TcpStream>>) -> Self {
+        {{ socket_stream_struct_name }} { socket: socket }
+    }
+
+    pub fn close(&mut self, code: Option<CloseFrame>) -> Result<(), Error> {
+        self.socket.close(code)
+    }
+
+    pub fn read(&mut self) -> Result<{{response_type_name}}, String> {
+        let response = match self.socket.read() {
+            Ok(response) => response,
+            Err(err) => return Err(err.to_string()),
+        };
+
+        let response_text = match response.into_text() {
+            Ok(response) => response,
+            Err(err) => return Err(err.to_string()),
+        };
+
+        let result = match serde_json::from_str::<serde_json::Value>(&response_text) {
+            Ok(response_json_object) => response_json_object,
+            Err(err) => return Err(err.to_string()),
+        };
+
+        let response_object = match result.get("result") {
+            Some(response_object) => response_object,
+            None => return Err("No result in message".to_string()),
+        };
+
+        match serde_json::from_value::<{{response_type_name}}>(response_object.clone()) {
+            Ok(response_object) => Ok(response_object),
+            Err(err) => return Err(err.to_string()),
+        }
+    }
+}
+
+
+pub async fn {{function_name}}(
+    host: &str,
+    {% for function_parameter in function_parameters %}
+    {{ function_parameter.name}}: &{{ function_parameter.type_name | safe }},
+    {% endfor %}
+    ) -> Result<{{socket_stream_struct_name}}, tungstenite::Error> {
+
+    {% let has_query_parameters = query_parameters.len() > 0 %}
+    {% if has_query_parameters %}
+    
+
+    {# Query Parameters Mutability #}
+    {% let query_parameters_mutable_modifier %}
+    {% if query_parameters_mutable %}
+    {% let query_parameters_mutable_modifier = "mut" %}
+    {% else %}
+    {% let query_parameters_mutable_modifier = "" %}
+    {% endif %}
+
+    // Required Query Parameters
+    let {{ query_parameters_mutable_modifier }} query_parameters: Vec<(&str, String)> = vec![
+    {% for query_parameter in query_parameters if query_parameter.is_required && !query_parameter.is_array %}
+        ("{{ query_parameter.real_name }}", {{ query_parameter.struct_name }}.{{ query_parameter.name }}.to_string()),
+    {% endfor %}
+    ];
+
+    
+    {% for optional_query_parameter in query_parameters if !optional_query_parameter.is_required %}
+    {% if loop.first %}
+    // Optional Query Parameters
+    {% endif %}
+    if let Some(ref query_parameter) = {{ optional_query_parameter.struct_name }}.{{ optional_query_parameter.name }} {
+        {% if optional_query_parameter.is_array %}
+        query_parameter.iter().for_each(|query_parameter_item| query_parameters.push(("{{ optional_query_parameter.real_name }}", query_parameter_item.to_string())));
+        {% else %}
+        query_parameters.push(("{{ optional_query_parameter.real_name }}", query_parameter.to_string()));
+        {% endif %}
+    }
+    {% endfor %}
+
+    
+    {% for array_query_parameter in query_parameters if array_query_parameter.is_array && array_query_parameter.is_required %}
+    {% if loop.first %}
+    // Required Array Query Parameters
+    {% endif %}
+    query_parameter.iter().for_each(|query_parameter_item| query_parameters.push(("{{ array_query_parameter.real_name }}", query_parameter_item.to_string())));
+    {% endfor %}
+
+
+    // Query and Path Parameters Assembly
+    let mut query_string = query_parameters
+        .iter()
+        .map(|(name, value)| format!("{}={}", name, value))
+        .collect::<Vec<String>>()
+        .join("&");
+    if query_string.len() > 0 {
+        query_string.insert_str(0, "?");
+    }
+    {% endif %} {# if has_query_parameters #}
+
+    
+    let url = format!(
+        "{}{{ path_format_string }}{% if has_query_parameters %}{}{% endif %}",
+        host,
+        {{ path_parameter_arguments }}
+    {% if has_query_parameters %}
+        query_string
+    {% endif %}
+    );
+    
+
+    let uri: Uri = match url.parse() {
+        Ok(uri) => uri,
+        Err(err) => return Err(err.into()),
+    };
+
+    let mut request = match uri.into_client_request() {
+        Ok(request) => request,
+        Err(err) => return Err(err),
+    };
+    let request_headers = request.headers_mut();
+
+    if let Some(additional_headers) = additional_headers {
+        additional_headers.iter().for_each(|(key, value)| {
+            let key = match HeaderName::try_from(key) {
+                Ok(key) => key,
+                Err(_) => return (),
+            };
+            let value = match value.parse() {
+                Ok(value) => value,
+                Err(_) => return (),
+            };
+            request_headers.append(key, value);
+        });
+    }
+
+    // WebSocket connect
+    let (socket, _) = match connect(request) {
+        Ok(connection) => connection,
+        Err(err) => return Err(err),
+    };
+
+    Ok({{socket_stream_struct_name}}::from(socket))
+}
+{% endblock %}

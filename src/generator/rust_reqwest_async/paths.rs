@@ -6,12 +6,9 @@ use std::{
 use log::{error, info};
 use oas3::{spec::Operation, Spec};
 
-use crate::utils::config::Config;
+use crate::{parser::component::object_definition::types::ObjectDatabase, utils::config::Config};
 
-use super::{
-    component::object_definition::types::ObjectDatabase,
-    path::{default_request, websocket_request},
-};
+use super::path::{http_request, websocket_request};
 
 pub fn generate_paths(
     output_path: &str,
@@ -121,7 +118,7 @@ fn write_operation_to_file(
             Ok(request_code) => request_code,
             Err(err) => return Err(format!("Failed to generated websocket code {}", err)),
         },
-        _ => match default_request::generate_operation(
+        _ => match http_request::generate_operation(
             spec,
             &config.name_mapping,
             method,

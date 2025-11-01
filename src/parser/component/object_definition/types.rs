@@ -25,7 +25,7 @@ pub struct PropertyDefinition {
 pub enum ObjectDefinition {
     Struct(StructDefinition),
     Enum(EnumDefinition),
-    Primitive(PrimitveDefinition),
+    Primitive(PrimitiveDefinition),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -55,24 +55,6 @@ impl EnumDefinition {
         );
         required_modules
     }
-
-    pub fn to_string(&self, serializable: bool) -> String {
-        let mut definition_str = String::new();
-
-        definition_str += match serializable {
-            true => "#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]\n",
-            _ => "",
-        };
-        definition_str += format!("pub enum {} {{\n\n", self.name).as_str();
-
-        for (_, enum_value) in &self.values {
-            definition_str +=
-                format!("{}({}),\n", enum_value.name, enum_value.value_type.name).as_str()
-        }
-
-        definition_str += "}";
-        definition_str
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -91,45 +73,27 @@ impl StructDefinition {
                 .properties
                 .iter()
                 .filter_map(|(_, property)| property.module.as_ref())
+                .filter(|&module| module.name != self.name) // Prevent self-reference
                 .collect::<Vec<&ModuleInfo>>(),
         );
         required_modules
     }
-
-    pub fn to_string(&self, serializable: bool) -> String {
-        let mut definition_str = String::new();
-
-        definition_str += match serializable {
-            true => "#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]\n",
-            _ => "",
-        };
-        definition_str += format!("pub struct {} {{\n\n", self.name).as_str();
-
-        for (_, property) in &self.properties {
-            if property.name != property.real_name && serializable {
-                definition_str +=
-                    format!("#[serde(alias = \"{}\")]\n", property.real_name).as_str();
-            }
-
-            match property.required {
-                true => {
-                    definition_str +=
-                        format!("pub {}: {},\n", property.name, property.type_name).as_str()
-                }
-                false => {
-                    definition_str +=
-                        format!("pub {}: Option<{}>,\n", property.name, property.type_name).as_str()
-                }
-            }
-        }
-
-        definition_str += "}";
-        definition_str
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct PrimitveDefinition {
+pub struct PrimitiveDefinition {
     pub name: String,
-    pub primitive_type: TypeDefinition
+    pub primitive_type: TypeDefinition,
+}
+
+pub fn to_unique_list(modules: &Vec<ModuleInfo>) -> Vec<ModuleInfo> {
+    let mut unique_modules: Vec<ModuleInfo> = vec![];
+    for module in modules {
+        if !unique_modules.iter().any(|unique_module| {
+            unique_module.name == module.name && unique_module.path == module.path
+        }) {
+            unique_modules.push(module.clone());
+        }
+    }
+    unique_modules
 }

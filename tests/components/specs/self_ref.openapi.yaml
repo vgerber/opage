@@ -1,0 +1,28 @@
+openapi: 3.1.0
+info:
+  title: Test API
+  version: 0.0.0
+components:
+  schemas:
+    ConfigurationResourceId:
+      description: Identifier of a configuration resource.
+      type: string
+    ConfigurationResourceArray:
+      type: array
+      description: Array of configuration resources.
+      items:
+        $ref: "#/components/schemas/ConfigurationResource"
+    ConfigurationResource:
+      type: object
+      description: Configuration resource object.
+      properties:
+        id:
+          $ref: "#/components/schemas/ConfigurationResourceId"
+        name:
+          type: string
+          description: Human-readable name of the configuration resource.
+        children:
+          $ref: "#/components/schemas/ConfigurationResourceArray"
+      required:
+        - id
+        - name

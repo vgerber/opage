@@ -8,7 +8,7 @@ use oas3::{
 use reqwest::StatusCode;
 
 use crate::{
-    generator::component::{
+    parser::component::{
         object_definition::{
             get_object_or_ref_struct_name, is_object_empty,
             types::{ModuleInfo, ObjectDatabase, TypeDefinition},
@@ -281,11 +281,4 @@ pub fn generate_responses(
         );
     }
     Ok(response_entities)
-}
-
-pub fn use_module_to_string(module: &ModuleInfo) -> String {
-    if module.path.is_empty() {
-        return format!("use {};", module.name);
-    }
-    format!("use {}::{};", module.path, module.name)
 }

@@ -6,7 +6,8 @@ use oas3::{
     Spec,
 };
 use types::{
-    EnumDefinition, EnumValue, ModuleInfo, ObjectDefinition, PrimitveDefinition, PropertyDefinition, StructDefinition
+    EnumDefinition, EnumValue, ModuleInfo, ObjectDefinition, PrimitiveDefinition,
+    PropertyDefinition, StructDefinition,
 };
 
 use crate::utils::name_mapping::NameMapping;
@@ -87,7 +88,7 @@ pub fn generate_object(
 
     let schema_type = match object_schema.schema_type {
         Some(ref schema_type) => schema_type,
-        None =>  &SchemaTypeSet::Single(oas3::spec::SchemaType::String)
+        None => &SchemaTypeSet::Single(oas3::spec::SchemaType::String),
     };
 
     match schema_type {
@@ -108,7 +109,10 @@ pub fn generate_object(
                 Some(name),
                 name_mapping,
             ) {
-                Ok(type_definition) => Ok(ObjectDefinition::Primitive(PrimitveDefinition { name: name.to_owned(), primitive_type: type_definition })),
+                Ok(type_definition) => Ok(ObjectDefinition::Primitive(PrimitiveDefinition {
+                    name: name.to_owned(),
+                    primitive_type: type_definition,
+                })),
                 Err(err) => Err(err),
             },
         },
@@ -226,16 +230,7 @@ pub fn generate_enum_from_any(
             .name_to_struct_name(&definition_path, name)
             .to_owned(),
         values: HashMap::new(),
-        used_modules: vec![
-            ModuleInfo {
-                name: "Serialize".to_owned(),
-                path: "serde".to_owned(),
-            },
-            ModuleInfo {
-                name: "Deserialize".to_owned(),
-                path: "serde".to_owned(),
-            },
-        ],
+        used_modules: vec![],
     };
     definition_path.push(enum_definition.name.clone());
 
@@ -319,16 +314,7 @@ pub fn generate_enum_from_one_of(
             .name_to_struct_name(&definition_path, name)
             .to_owned(),
         values: HashMap::new(),
-        used_modules: vec![
-            ModuleInfo {
-                name: "Serialize".to_owned(),
-                path: "serde".to_owned(),
-            },
-            ModuleInfo {
-                name: "Deserialize".to_owned(),
-                path: "serde".to_owned(),
-            },
-        ],
+        used_modules: vec![],
     };
     definition_path.push(enum_definition.name.clone());
 
@@ -398,7 +384,6 @@ pub fn generate_enum_from_one_of(
     Ok(ObjectDefinition::Enum(enum_definition))
 }
 
-
 pub fn generate_struct(
     spec: &Spec,
     object_database: &mut ObjectDatabase,
@@ -413,16 +398,7 @@ pub fn generate_struct(
             .name_to_struct_name(&definition_path, name)
             .to_owned(),
         properties: HashMap::new(),
-        used_modules: vec![
-            ModuleInfo {
-                name: "Serialize".to_owned(),
-                path: "serde".to_owned(),
-            },
-            ModuleInfo {
-                name: "Deserialize".to_owned(),
-                path: "serde".to_owned(),
-            },
-        ],
+        used_modules: vec![],
         local_objects: HashMap::new(),
     };
     definition_path.push(struct_definition.name.clone());

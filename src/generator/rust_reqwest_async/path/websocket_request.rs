@@ -1,9 +1,11 @@
 use super::utils::{
-    generate_request_body, generate_responses, is_path_parameter, use_module_to_string,
-    TransferMediaType,
+    generate_request_body, generate_responses, is_path_parameter, TransferMediaType,
+};
+use crate::generator::rust_reqwest_async::templates::{
+    EnumDefinitionTemplate, PrimitiveDefinitionTemplate, StructDefinitionTemplate,
 };
 use crate::{
-    generator::component::{
+    parser::component::{
         object_definition::{
             oas3_type_to_string,
             types::{
@@ -14,6 +16,7 @@ use crate::{
     },
     utils::name_mapping::NameMapping,
 };
+use askama::Template;
 use log::error;
 use oas3::{
     spec::{FromRef, ObjectOrReference, ObjectSchema, Operation, ParameterIn},
@@ -21,50 +24,38 @@ use oas3::{
 };
 use std::collections::HashMap;
 
-fn read_websocket_stream_to_string(struct_name: &str, response_type_name: &str) -> String {
-    return format!(
-        "pub struct {struct_name} {{
-    socket: WebSocket<MaybeTlsStream<TcpStream>>,
-    }}
+#[derive(Debug)]
+struct QueryParameter {
+    is_required: bool,
+    is_array: bool,
+    real_name: String,
+    name: String,
+    struct_name: String,
+}
 
-impl {struct_name} {{
-    pub fn from(socket: WebSocket<MaybeTlsStream<TcpStream>>) -> Self {{
-        {struct_name} {{ socket: socket }}
-    }}
+#[derive(Debug)]
+struct FunctionParameter {
+    name: String,
+    type_name: String,
+}
 
-    pub fn close(&mut self, code: Option<CloseFrame>) -> Result<(), Error> {{
-        self.socket.close(code)
-    }}
-
-    pub fn read(&mut self) -> Result<{response_type_name}, String> {{
-        let response = match self.socket.read() {{
-            Ok(response) => response,
-            Err(err) => return Err(err.to_string()),
-        }};
-
-        let response_text = match response.into_text() {{
-            Ok(response) => response,
-            Err(err) => return Err(err.to_string()),
-        }};
-
-        let result = match serde_json::from_str::<serde_json::Value>(&response_text) {{
-            Ok(response_json_object) => response_json_object,
-            Err(err) => return Err(err.to_string()),
-        }};
-
-        let response_object = match result.get(\"result\") {{
-            Some(response_object) => response_object,
-            None => return Err(\"No result in message\".to_string()),
-        }};
-
-        match serde_json::from_value::<{response_type_name}>(response_object.clone()) {{
-            Ok(response_object) => Ok(response_object),
-            Err(err) => return Err(err.to_string()),
-        }}
-    }}
-}}
-"
-    );
+#[derive(Template)]
+#[template(path = "rust_reqwest_async/websocket.rs.jinja", ext = "rs")]
+struct WebSocketRequestTemplate {
+    // Base
+    module_imports: Vec<ModuleInfo>,
+    struct_definitions: Vec<StructDefinitionTemplate>,
+    enum_definitions: Vec<EnumDefinitionTemplate>,
+    primitive_definitions: Vec<PrimitiveDefinitionTemplate>,
+    // WebSocket
+    socket_stream_struct_name: String,
+    response_type_name: String,
+    function_name: String,
+    function_parameters: Vec<FunctionParameter>,
+    path_format_string: String,
+    path_parameter_arguments: String,
+    query_parameters_mutable: bool,
+    query_parameters: Vec<QueryParameter>,
 }
 
 pub fn generate_operation(
@@ -164,6 +155,7 @@ pub fn generate_operation(
             .collect::<HashMap<String, PropertyDefinition>>(),
         local_objects: HashMap::new(),
     };
+    let mut struct_definitions = vec![&path_struct_definition];
 
     let path_format_string = path
         .split("/")
@@ -176,17 +168,14 @@ pub fn generate_operation(
         .collect::<Vec<String>>()
         .join("/");
 
-    let mut request_source_code = String::new();
-
-    let mut function_parameters = vec![];
+    let mut function_parameters: Vec<FunctionParameter> = vec![];
 
     if !path_struct_definition.properties.is_empty() {
-        function_parameters.push(format!(
-            "{}: &{}",
-            name_mapping
+        function_parameters.push(FunctionParameter {
+            name: name_mapping
                 .name_to_property_name(&operation_definition_path, &path_struct_definition.name),
-            path_struct_definition.name
-        ));
+            type_name: path_struct_definition.name.clone(),
+        });
     }
 
     let mut module_imports = vec![
@@ -224,7 +213,7 @@ pub fn generate_operation(
         },
         ModuleInfo {
             name: "HeaderName".to_owned(),
-            path: "http".to_owned(),
+            path: "tungstenite::http".to_owned(),
         },
     ];
 
@@ -307,18 +296,19 @@ pub fn generate_operation(
         };
     }
 
-    let mut query_struct_source_code = String::new();
     if query_struct.properties.len() > 0 {
-        function_parameters.push(format!(
-            "{}: &{}",
-            name_mapping.name_to_property_name(&operation_definition_path, &query_struct.name),
-            query_struct.name
-        ));
-        query_struct_source_code += &query_struct.to_string(false);
-        query_struct_source_code += "\n\n";
+        function_parameters.push(FunctionParameter {
+            name: name_mapping
+                .name_to_property_name(&operation_definition_path, &query_struct.name),
+            type_name: query_struct.name.clone(),
+        });
+        struct_definitions.push(&query_struct);
     }
 
-    function_parameters.push("additional_headers: Option<Vec<(String, String)>>".to_owned());
+    function_parameters.push(FunctionParameter {
+        name: "additional_headers".to_owned(),
+        type_name: "Option<Vec<(String, String)>>".to_owned(),
+    });
 
     // Request Body
     let request_body = match operation.request_body {
@@ -357,120 +347,23 @@ pub fn generate_operation(
                                 module_imports.push(module.clone());
                             }
                         }
-                        function_parameters.push(format!(
-                            "{}: {}",
-                            name_mapping.name_to_property_name(
+                        function_parameters.push(FunctionParameter {
+                            name: name_mapping.name_to_property_name(
                                 &operation_definition_path,
-                                &type_definition.name
+                                &type_definition.name,
                             ),
-                            type_definition.name
-                        ))
+                            type_name: type_definition.name.clone(),
+                        });
                     }
                     None => (),
                 },
-                TransferMediaType::TextPlain => function_parameters.push(format!(
-                    "request_string: &{}",
-                    oas3_type_to_string(&oas3::spec::SchemaType::String)
-                )),
+                TransferMediaType::TextPlain => function_parameters.push(FunctionParameter {
+                    name: "request_string".to_owned(),
+                    type_name: oas3_type_to_string(&oas3::spec::SchemaType::String),
+                }),
             }
             break;
         }
-    }
-
-    let socket_stream_struct_name = format!(
-        "{}Stream",
-        name_mapping.name_to_struct_name(&operation_definition_path, &function_name)
-    );
-
-    request_source_code += &module_imports
-        .iter()
-        .map(use_module_to_string)
-        .collect::<Vec<String>>()
-        .join("\n");
-    request_source_code += "\n\n";
-    request_source_code += &read_websocket_stream_to_string(
-        &socket_stream_struct_name,
-        &socket_transfer_type_definition.name,
-    );
-    request_source_code += "\n";
-    if !path_struct_definition.properties.is_empty() {
-        request_source_code += &path_struct_definition.to_string(false);
-        request_source_code += "\n";
-    }
-
-    request_source_code += &query_struct_source_code;
-
-    // Function signature
-    request_source_code += &format!(
-        "pub async fn {}(host: &str, {}) -> Result<{}, tungstenite::Error> {{\n",
-        function_name,
-        function_parameters.join(", "),
-        socket_stream_struct_name,
-    );
-
-    request_source_code += &format!(
-        "let {} query_parameters: Vec<(&str, String)> = vec![{}];\n",
-        match query_struct
-            .properties
-            .iter()
-            .filter(|(_, property)| !property.required || property.type_name.starts_with("Vec<"))
-            .collect::<Vec<(&String, &PropertyDefinition)>>()
-            .len()
-        {
-            0 => "",
-            _ => "mut",
-        },
-        query_struct
-            .properties
-            .iter()
-            .filter(|(_, property)| property.required && !property.type_name.starts_with("Vec<"))
-            .map(|(_, property)| format!(
-                "(\"{}\",{}.{}.to_string())",
-                property.real_name,
-                name_mapping.name_to_property_name(&operation_definition_path, &query_struct.name),
-                property.name
-            ))
-            .collect::<Vec<String>>()
-            .join(",")
-    );
-
-    query_struct
-        .properties
-        .values()
-        .filter(|&property| property.required && property.type_name.starts_with("Vec<"))
-        .for_each(|vector_property|
-    {
-        request_source_code += &format!(
-                "{}.{}.iter().for_each(|query_parameter_item| query_parameters.push((\"{}\", query_parameter_item.to_string())));\n",
-                name_mapping.name_to_property_name(&operation_definition_path, &query_struct.name),
-                name_mapping.name_to_property_name(&operation_definition_path, &vector_property.name),
-                vector_property.real_name
-            );
-    });
-
-    for optional_property in query_struct
-        .properties
-        .values()
-        .filter(|&property| !property.required)
-        .collect::<Vec<&PropertyDefinition>>()
-    {
-        request_source_code += &format!(
-            "if let Some(ref query_parameter) = {}.{} {{\n",
-            name_mapping.name_to_property_name(&operation_definition_path, &query_struct.name),
-            optional_property.name
-        );
-        if optional_property.type_name.starts_with("Vec<") {
-            request_source_code += &format!(
-                "query_parameter.iter().for_each(|query_parameter_item| query_parameters.push((\"{}\", query_parameter_item.to_string())));\n",
-                optional_property.real_name
-            );
-        } else {
-            request_source_code += &format!(
-                "query_parameters.push((\"{}\", query_parameter.to_string()));\n",
-                optional_property.real_name
-            );
-        }
-        request_source_code += "}\n"
     }
 
     let mut path_parameter_arguments = path_parameters_ordered
@@ -491,59 +384,43 @@ pub fn generate_operation(
         path_parameter_arguments += ","
     }
 
-    // create query parameter string
-    request_source_code += "let mut query_string = query_parameters
-        .iter()
-        .map(|(name, value)| format!(\"{}={}\", name, value))
-        .collect::<Vec<String>>()
-        .join(\"&\");
-    if query_string.len() > 0 {
-        query_string.insert_str(0, \"?\");
-    }";
-
-    request_source_code += &format!(
-        "let url = format!(
-            \"{{}}{}{{}}\",
-            host,
-            {}
-            query_string
-        );",
-        path_format_string, path_parameter_arguments
-    );
-
-    request_source_code += "
-    let uri: Uri = match url.parse() {
-        Ok(uri) => uri,
-        Err(err) => return Err(err.into()),
-    };
-
-    let mut request = match uri.into_client_request() {
-        Ok(request) => request,
-        Err(err) => return Err(err),
-    };
-    let request_headers = request.headers_mut();
-
-    if let Some(additional_headers) = additional_headers {
-        additional_headers.iter().for_each(|(key, value)| {
-            let key = match HeaderName::try_from(key) {
-                Ok(key) => key,
-                Err(_) => return (),
-            };
-            let value = match value.parse() {
-                Ok(value) => value,
-                Err(_) => return (),
-            };
-            request_headers.append(key, value);
-        });
+    WebSocketRequestTemplate {
+        module_imports: module_imports,
+        enum_definitions: vec![],
+        primitive_definitions: vec![],
+        struct_definitions: struct_definitions
+            .iter()
+            .map(|&s| Into::<StructDefinitionTemplate>::into(s).serializable(false))
+            .collect(),
+        socket_stream_struct_name: format!(
+            "{}Stream",
+            name_mapping.name_to_struct_name(&operation_definition_path, &function_name)
+        ),
+        response_type_name: socket_transfer_type_definition.name.clone(),
+        function_name: function_name.clone(),
+        function_parameters: function_parameters,
+        path_format_string: path_format_string,
+        path_parameter_arguments: path_parameter_arguments,
+        query_parameters_mutable: query_struct
+            .properties
+            .iter()
+            .filter(|(_, property)| !property.required || property.type_name.starts_with("Vec<"))
+            .collect::<Vec<(&String, &PropertyDefinition)>>()
+            .len()
+            > 0,
+        query_parameters: query_struct
+            .properties
+            .iter()
+            .map(|(_, property)| QueryParameter {
+                real_name: property.real_name.clone(),
+                name: property.name.clone(),
+                struct_name: name_mapping
+                    .name_to_property_name(&operation_definition_path, &query_struct.name),
+                is_required: property.required,
+                is_array: property.type_name.starts_with("Vec<"),
+            })
+            .collect(),
     }
-
-    let (socket, _) = match connect(request) {
-        Ok(connection) => connection,
-        Err(err) => return Err(err),
-    };";
-
-    request_source_code += &format!("");
-    request_source_code += &format!("Ok({}::from(socket))", socket_stream_struct_name);
-    request_source_code += "}";
-    Ok(request_source_code)
+    .render()
+    .map_err(|err| err.to_string())
 }

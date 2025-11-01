@@ -1,0 +1,47 @@
+openapi: 3.1.0
+info:
+  title: Test API
+  version: 0.0.0
+paths:
+  /test:
+  get:
+    tags:
+      - System
+    summary: List Configuration Resources
+    description: |
+      Retrieves a list of all available configuration resources for backup purposes.
+    operationId: listConfigurationResources
+    responses:
+      "200":
+        description: Successful response
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigurationResourceArray"
+            examples:
+              DefaultCell:
+                $ref: "#/components/examples/CellDefault"
+components:
+  schemas:
+    ConfigurationResourceId:
+      description: Identifier of a configuration resource.
+      type: string
+    ConfigurationResourceArray:
+      type: array
+      description: Array of configuration resources.
+      items:
+        $ref: "#/components/schemas/ConfigurationResource"
+    ConfigurationResource:
+      type: object
+      description: Configuration resource object.
+      properties:
+        id:
+          $ref: "#/components/schemas/ConfigurationResourceId"
+        name:
+          type: string
+          description: Human-readable name of the configuration resource.
+        children:
+          $ref: "#/components/schemas/ConfigurationResourceArray"
+      required:
+        - id
+        - name
