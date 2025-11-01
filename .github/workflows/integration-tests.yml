@@ -32,11 +32,21 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.4
+
       - name: Build
         run: cargo build --verbose
+        env:
+          RUSTC_WRAPPER: sccache
 
       - name: Make tests.sh executable
         run: chmod +x tests.sh
 
       - name: Run integration tests
         run: ./tests.sh
+        env:
+          RUSTC_WRAPPER: sccache
+
+      - name: Show sccache stats
+        run: sccache --show-stats
