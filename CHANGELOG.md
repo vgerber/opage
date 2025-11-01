@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/vgerber/opage/compare/v1.0.2...v1.1.0) (2025-11-01)
+
+
+### Features
+
+* Fixes for path arguments ordering, structure changes and improved error log of websockets ([#7](https://github.com/vgerber/opage/issues/7)) ([0f2484c](https://github.com/vgerber/opage/commit/0f2484c65f1c357fc29f4bbc21f1dd8fa13a9264))
+
 ## [1.0.1](https://github.com/vgerber/opage/compare/v1.0.0...v1.0.1) (2025-11-01)
 
 
