@@ -6,9 +6,10 @@ pub mod utils;
 use std::{fs::File, io::Write, path::Path};
 
 use cli::cli;
+use generator::rust_reqwest_async::objects::write_object_database;
 use generator::rust_reqwest_async::{cargo::generate_cargo_content, paths::generate_paths};
 use log::info;
-use parser::component::{generate_components, write_object_database};
+use parser::component::generate_components;
 use utils::{config::Config, log::Logger};
 
 static LOGGER: Logger = Logger;
