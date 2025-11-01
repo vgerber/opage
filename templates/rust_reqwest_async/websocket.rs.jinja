@@ -34,7 +34,7 @@ impl {{ socket_stream_struct_name }} {
 
         let response_object = match result.get("result") {
             Some(response_object) => response_object,
-            None => return Err(format!("No result in message: {}", response_text)),,
+            None => return Err(format!("No result in message: {}", response_text)),
         };
 
         match serde_json::from_value::<{{response_type_name}}>(response_object.clone()) {
